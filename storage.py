@@ -4,7 +4,6 @@ import hashlib
 import json
 from config import (
     CATALOG_DB, DEFAULT_HOST,
-    MOVIE_SECTIONS, TV_SECTIONS, ANIME_SECTIONS,
 )
 import state
 
@@ -78,12 +77,21 @@ def read_scalar(sql: str, params: tuple = ()):
 
 
 def classify_section(title: str) -> tuple[int, int, int]:
+    """Best-effort section → type mapping using substring keywords.
+    Works across geo-shifted home feeds — 'Popular Movie' (Singapore) and
+    'Cinema' (Mumbai) both → is_movie=1. Genre-named sections that don't
+    match any keyword fall through to enrichment via /detail."""
     clean = title.lower().replace("🔥", "").replace("🆓", "").strip()
-    return (
-        1 if clean in MOVIE_SECTIONS else 0,
-        1 if clean in TV_SECTIONS else 0,
-        1 if clean in ANIME_SECTIONS else 0,
-    )
+    is_movie = 1 if any(kw in clean for kw in (
+        "movie", "cinema", "nollywood", "bollywood", "hollywood",
+    )) else 0
+    is_tv = 1 if any(kw in clean for kw in (
+        "series", "tv", "show", "drama",
+    )) else 0
+    is_anime = 1 if any(kw in clean for kw in (
+        "anime", "animation",
+    )) else 0
+    return (is_movie, is_tv, is_anime)
 
 
 def upsert_subject(sub: dict, section: str | None = None, source_host: str = DEFAULT_HOST) -> bool:

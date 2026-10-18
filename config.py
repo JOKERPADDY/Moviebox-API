@@ -66,15 +66,14 @@ PLAYER_HEADERS = {
     "sec-fetch-site": "same-origin",
 }
 
+# Substring keywords used to classify home sections into movie / tv / anime
+# buckets. Substring matching (not exact) so this survives geo-shifted home
+# feeds — Singapore says "Popular Movie", Mumbai says "Cinema", both match.
 CATALOG_SECTIONS = {
-    "movies": ["Cinema", "Bollywood", "Hollywood", "South Indian"],
-    "tv-series": ["Hot Short TV", "Indian Drama", "Western TV", "Best Asian Series"],
-    "animation": ["Top Anime"],
+    "movies": ["movie", "cinema", "nollywood", "bollywood", "hollywood", "south indian"],
+    "tv-series": ["series", "tv", "show", "drama"],
+    "animation": ["anime", "animation"],
 }
-
-MOVIE_SECTIONS = {"cinema", "bollywood", "hollywood", "south indian"}
-TV_SECTIONS = {"hot short tv", "indian drama", "western tv", "best asian series"}
-ANIME_SECTIONS = {"top anime"}
 
 TAB_PAYLOAD_VARIANTS = {
     "baseline":       {"filter": {"sort": "RECOMMEND", "genre": "ALL", "country": "ALL", "year": "ALL", "language": "ALL"}},
