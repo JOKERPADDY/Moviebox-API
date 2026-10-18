@@ -4,6 +4,7 @@ __pycache__/
 venv/
 env/
 .env
+.env.local
 *.log
 .DS_Store
 .pytest_cache/
@@ -14,3 +15,4 @@ env/
 catalog.db
 catalog.db-wal
 catalog.db-shm
+catalog.db.backup-*
