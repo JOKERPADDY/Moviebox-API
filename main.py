@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+import sqlite3
 import asyncio
 from contextlib import asynccontextmanager
 import httpx
@@ -9,7 +10,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-API_VERSION = "2.3.3"
+API_VERSION = "2.4.1"
 
 PORT = int(os.environ.get("PORT", "8000"))
 REQUEST_TIMEOUT = float(os.environ.get("REQUEST_TIMEOUT", "25"))
@@ -21,6 +22,13 @@ TAB_MOVIES = int(os.environ.get("TAB_MOVIES", "2"))
 TAB_TV = int(os.environ.get("TAB_TV", "5"))
 TAB_ANIMATION = int(os.environ.get("TAB_ANIMATION", "8"))
 
+CATALOG_DB = os.environ.get("CATALOG_DB", "catalog.db")
+CATALOG_REFRESH_INTERVAL = int(os.environ.get("CATALOG_REFRESH_INTERVAL", "21600"))
+CATALOG_KEYWORDS = list("abcdefghijklmnopqrstuvwxyz0123456789")
+CATALOG_MAX_PAGES_PER_KEYWORD = int(os.environ.get("CATALOG_MAX_PAGES_PER_KEYWORD", "50"))
+ENRICH_RATE_LIMIT = float(os.environ.get("ENRICH_RATE_LIMIT", "0.2"))
+ENRICH_BATCH_SIZE = int(os.environ.get("ENRICH_BATCH_SIZE", "20"))
+
 BASE_URL = "https://moviebox.ph"
 API_BASE = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
 
@@ -29,6 +37,10 @@ _bearer_token: str | None = None
 _token_acquired_at: float = 0.0
 _token_lock = asyncio.Lock()
 _domain_cache: dict = {"value": None, "expires": 0.0}
+
+_write_conn: sqlite3.Connection | None = None
+_walk_state: dict = {"running": False, "enriching": False}
+_background_task: asyncio.Task | None = None
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
@@ -68,6 +80,10 @@ CATALOG_SECTIONS = {
     "animation": ["Top Anime"],
 }
 
+MOVIE_SECTIONS = {"cinema", "bollywood", "hollywood", "south indian"}
+TV_SECTIONS = {"hot short tv", "indian drama", "western tv", "best asian series"}
+ANIME_SECTIONS = {"top anime"}
+
 TAB_PAYLOAD_VARIANTS = {
     "baseline":       {"filter": {"sort": "RECOMMEND", "genre": "ALL", "country": "ALL", "year": "ALL", "language": "ALL"}},
     "no_filter":      None,
@@ -80,11 +96,326 @@ TAB_PAYLOAD_VARIANTS = {
     "type_series":    {"filter": {"sort": "RECOMMEND", "genre": "ALL", "country": "ALL", "year": "ALL", "language": "ALL", "type": "TV_SERIES"}},
 }
 
+# ─── CATALOG STORAGE ──────────────────────────────────────────────────────────
+
+def _init_schema():
+    _write_conn.execute("""
+        CREATE TABLE IF NOT EXISTS subjects (
+            subject_id TEXT PRIMARY KEY,
+            title TEXT,
+            poster_url TEXT,
+            slug TEXT,
+            rating TEXT,
+            year TEXT,
+            badge TEXT,
+            is_movie INTEGER DEFAULT 0,
+            is_tv INTEGER DEFAULT 0,
+            is_anime INTEGER DEFAULT 0,
+            subject_type INTEGER,
+            genre TEXT,
+            first_seen REAL NOT NULL,
+            last_seen REAL NOT NULL
+        )
+    """)
+    _write_conn.execute("""
+        CREATE TABLE IF NOT EXISTS keyword_stats (
+            keyword TEXT PRIMARY KEY,
+            pages_walked INTEGER DEFAULT 0,
+            items_seen INTEGER DEFAULT 0,
+            hit_cap INTEGER DEFAULT 0,
+            total_per_upstream INTEGER,
+            last_walked REAL
+        )
+    """)
+    # migration for pre-2.4.1 DBs
+    cols = {row[1] for row in _write_conn.execute("PRAGMA table_info(subjects)").fetchall()}
+    if "subject_type" not in cols:
+        _write_conn.execute("ALTER TABLE subjects ADD COLUMN subject_type INTEGER")
+    if "genre" not in cols:
+        _write_conn.execute("ALTER TABLE subjects ADD COLUMN genre TEXT")
+    _write_conn.execute("CREATE INDEX IF NOT EXISTS idx_title ON subjects(title)")
+    _write_conn.execute("CREATE INDEX IF NOT EXISTS idx_rating ON subjects(rating)")
+    _write_conn.execute("CREATE INDEX IF NOT EXISTS idx_last_seen ON subjects(last_seen)")
+    _write_conn.execute("CREATE INDEX IF NOT EXISTS idx_movie ON subjects(is_movie)")
+    _write_conn.execute("CREATE INDEX IF NOT EXISTS idx_tv ON subjects(is_tv)")
+    _write_conn.execute("CREATE INDEX IF NOT EXISTS idx_anime ON subjects(is_anime)")
+    _write_conn.execute("CREATE INDEX IF NOT EXISTS idx_stype ON subjects(subject_type)")
+    _write_conn.commit()
+
+def _read(sql: str, params: tuple = ()) -> list:
+    conn = sqlite3.connect(CATALOG_DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        return conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+
+def _read_scalar(sql: str, params: tuple = ()):
+    conn = sqlite3.connect(CATALOG_DB)
+    try:
+        row = conn.execute(sql, params).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+def _classify_section(title: str) -> tuple[int, int, int]:
+    clean = title.lower().replace("🔥", "").replace("🆓", "").strip()
+    return (
+        1 if clean in MOVIE_SECTIONS else 0,
+        1 if clean in TV_SECTIONS else 0,
+        1 if clean in ANIME_SECTIONS else 0,
+    )
+
+def _upsert_subject(sub: dict, section: str | None = None) -> bool:
+    if _write_conn is None:
+        return False
+    sid = str(sub.get("subjectId") or "")
+    if not sid:
+        return False
+    now = time.time()
+    is_movie = is_tv = is_anime = 0
+    if section:
+        is_movie, is_tv, is_anime = _classify_section(section)
+    try:
+        _write_conn.execute("""
+            INSERT INTO subjects
+                (subject_id, title, poster_url, slug, rating, year, badge,
+                 is_movie, is_tv, is_anime, first_seen, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(subject_id) DO UPDATE SET
+                title      = COALESCE(excluded.title, subjects.title),
+                poster_url = COALESCE(excluded.poster_url, subjects.poster_url),
+                slug       = COALESCE(excluded.slug, subjects.slug),
+                rating     = COALESCE(excluded.rating, subjects.rating),
+                year       = COALESCE(excluded.year, subjects.year),
+                badge      = COALESCE(excluded.badge, subjects.badge),
+                is_movie   = MAX(subjects.is_movie, excluded.is_movie),
+                is_tv      = MAX(subjects.is_tv, excluded.is_tv),
+                is_anime   = MAX(subjects.is_anime, excluded.is_anime),
+                last_seen  = excluded.last_seen
+        """, (
+            sid,
+            sub.get("title"),
+            (sub.get("cover") or {}).get("url"),
+            sub.get("detailPath"),
+            sub.get("imdbRatingValue"),
+            (sub.get("releaseDate") or "")[:4] or None,
+            sub.get("corner"),
+            is_movie, is_tv, is_anime,
+            now, now,
+        ))
+        return True
+    except Exception as e:
+        print(f"upsert {sid} failed: {e}")
+        return False
+
+async def _ingest_home_sections() -> int:
+    try:
+        ops = await _get_home_operating_list()
+    except Exception:
+        return 0
+    count = 0
+    for op in ops:
+        op_type = op.get("type")
+        section_title = op.get("title", "")
+        if op_type not in ("SUBJECTS_MOVIE", "SUBJECTS_TV", "SUBJECTS_ANIMATION"):
+            continue
+        for raw in op.get("subjects", []) or []:
+            if _upsert_subject(raw, section=section_title):
+                count += 1
+    if _write_conn is not None:
+        _write_conn.commit()
+    return count
+
+async def _walk_keyword(kw: str) -> int:
+    seen = 0
+    pages = 0
+    hit_cap = 0
+    total_upstream = None
+    for page in range(1, CATALOG_MAX_PAGES_PER_KEYWORD + 1):
+        try:
+            data = await _make_request(
+                f"{API_BASE}/subject/search",
+                method="POST",
+                payload={"keyword": kw, "page": page, "perPage": 20},
+            )
+        except HTTPException:
+            break
+        inner = data.get("data", {}) or {}
+        items = inner.get("items") or inner.get("list") or []
+        if not items:
+            break
+        if _write_conn is None:
+            break
+        for sub in items:
+            if _upsert_subject(sub):
+                seen += 1
+        _write_conn.commit()
+        pages = page
+        pager = inner.get("pager") or {}
+        if total_upstream is None:
+            total_upstream = pager.get("totalCount")
+        if not pager.get("hasMore"):
+            break
+        if page == CATALOG_MAX_PAGES_PER_KEYWORD:
+            hit_cap = 1
+    # record stats
+    try:
+        _write_conn.execute("""
+            INSERT INTO keyword_stats (keyword, pages_walked, items_seen, hit_cap, total_per_upstream, last_walked)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(keyword) DO UPDATE SET
+                pages_walked = excluded.pages_walked,
+                items_seen = excluded.items_seen,
+                hit_cap = excluded.hit_cap,
+                total_per_upstream = excluded.total_per_upstream,
+                last_walked = excluded.last_walked
+        """, (kw, pages, seen, hit_cap, total_upstream, time.time()))
+        _write_conn.commit()
+    except Exception as e:
+        print(f"keyword_stats {kw} failed: {e}")
+    return seen
+
+async def _run_full_walk():
+    if _walk_state.get("running"):
+        return
+    _walk_state.update({
+        "running": True,
+        "started_at": time.time(),
+        "keywords_done": 0,
+        "keywords_total": len(CATALOG_KEYWORDS),
+        "items_seen": 0,
+    })
+    try:
+        await _ingest_home_sections()
+        for kw in CATALOG_KEYWORDS:
+            try:
+                count = await _walk_keyword(kw)
+                _walk_state["keywords_done"] += 1
+                _walk_state["items_seen"] += count
+            except Exception as e:
+                print(f"walk {kw!r} failed: {e}")
+                _walk_state["keywords_done"] += 1
+        _walk_state["finished_at"] = time.time()
+        _walk_state["duration_seconds"] = round(_walk_state["finished_at"] - _walk_state["started_at"], 1)
+        _walk_state["total_indexed"] = _read_scalar("SELECT COUNT(*) FROM subjects") or 0
+    finally:
+        _walk_state["running"] = False
+
+# ─── ENRICHMENT ───────────────────────────────────────────────────────────────
+
+def _classify_from_detail(subject_type, genre: str | None) -> tuple[int, int, int] | None:
+    """Return (is_movie, is_tv, is_anime) or None if unknown type."""
+    if subject_type == 1:
+        return (1, 0, 0)
+    if subject_type == 2:
+        if genre and "anime" in genre.lower():
+            return (0, 0, 1)
+        return (0, 1, 0)
+    if subject_type == 6:
+        return (0, 0, 0)  # music video — no category, filter out
+    return None
+
+async def _enrich_subject(row) -> bool:
+    sid = row["subject_id"]
+    slug = row["slug"]
+    if not slug:
+        return False
+    try:
+        data = await _make_request(f"{API_BASE}/detail?detailPath={slug}")
+    except HTTPException:
+        return False
+    sub = (data.get("data") or {}).get("subject") or {}
+    stype = sub.get("subjectType")
+    genre = sub.get("genre") or ""
+    classification = _classify_from_detail(stype, genre)
+    if classification is None:
+        # unknown type — mark as processed so we don't retry forever
+        # use sentinel value 0 for subject_type so it never re-enters queue
+        try:
+            _write_conn.execute(
+                "UPDATE subjects SET subject_type=0, genre=? WHERE subject_id=?",
+                (genre, sid),
+            )
+            return True
+        except Exception:
+            return False
+    is_movie, is_tv, is_anime = classification
+    try:
+        _write_conn.execute(
+            "UPDATE subjects SET subject_type=?, genre=?, is_movie=?, is_tv=?, is_anime=? WHERE subject_id=?",
+            (stype, genre, is_movie, is_tv, is_anime, sid),
+        )
+        return True
+    except Exception as e:
+        print(f"enrich {sid} failed: {e}")
+        return False
+
+async def _run_enrichment():
+    if _walk_state.get("enriching"):
+        return
+    _walk_state["enriching"] = True
+    enriched = 0
+    failed = 0
+    try:
+        while True:
+            rows = _read("""
+                SELECT subject_id, slug FROM subjects
+                WHERE subject_type IS NULL
+                  AND slug IS NOT NULL
+                  AND is_movie = 0 AND is_tv = 0 AND is_anime = 0
+                LIMIT ?
+            """, (ENRICH_BATCH_SIZE,))
+            if not rows:
+                break
+            for row in rows:
+                ok = await _enrich_subject(row)
+                if ok:
+                    enriched += 1
+                else:
+                    failed += 1
+                if _write_conn is not None:
+                    _write_conn.commit()
+                await asyncio.sleep(ENRICH_RATE_LIMIT)
+            _walk_state["enrich_progress"] = {
+                "enriched": enriched,
+                "failed": failed,
+                "remaining": _read_scalar(
+                    "SELECT COUNT(*) FROM subjects WHERE subject_type IS NULL AND slug IS NOT NULL"
+                ) or 0,
+            }
+        _walk_state["enrich_progress"] = {
+            "enriched": enriched,
+            "failed": failed,
+            "remaining": 0,
+            "finished_at": time.time(),
+        }
+    finally:
+        _walk_state["enriching"] = False
+
+async def _catalog_maintenance_loop():
+    await asyncio.sleep(2)
+    try:
+        if (_read_scalar("SELECT COUNT(*) FROM subjects") or 0) == 0:
+            await _run_full_walk()
+        await _run_enrichment()
+    except Exception as e:
+        print(f"initial catalog setup failed: {e}")
+    while True:
+        try:
+            await asyncio.sleep(CATALOG_REFRESH_INTERVAL)
+            await _run_full_walk()
+            await _run_enrichment()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"catalog refresh failed: {e}")
+
 # ─── LIFESPAN ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _client
+    global _client, _write_conn, _background_task
     _client = httpx.AsyncClient(
         timeout=httpx.Timeout(REQUEST_TIMEOUT, connect=10.0),
         limits=httpx.Limits(
@@ -94,11 +425,25 @@ async def lifespan(app: FastAPI):
         ),
         follow_redirects=True,
     )
+    _write_conn = sqlite3.connect(CATALOG_DB, check_same_thread=False)
+    _write_conn.execute("PRAGMA journal_mode=WAL")
+    _write_conn.execute("PRAGMA synchronous=NORMAL")
+    _init_schema()
+    _background_task = asyncio.create_task(_catalog_maintenance_loop())
     try:
         yield
     finally:
+        if _background_task is not None:
+            _background_task.cancel()
+            try:
+                await _background_task
+            except asyncio.CancelledError:
+                pass
         await _client.aclose()
         _client = None
+        if _write_conn is not None:
+            _write_conn.close()
+            _write_conn = None
 
 app = FastAPI(
     title="MovieBox API Pro",
@@ -363,7 +708,166 @@ async def _catalog_from_home(keywords: list[str], page: int, per_page: int = 24)
         "items": paged,
     }
 
-# ─── CATALOG ──────────────────────────────────────────────────────────────────
+# ─── CATALOG ROUTES ───────────────────────────────────────────────────────────
+
+def _row_to_item(r) -> dict:
+    return {
+        "name": r["title"],
+        "poster_url": r["poster_url"],
+        "slug": r["slug"],
+        "subject_id": r["subject_id"],
+        "rating": r["rating"],
+        "year": r["year"],
+        "badge": r["badge"],
+        "subject_type": r["subject_type"] if "subject_type" in r.keys() else None,
+        "genre": r["genre"] if "genre" in r.keys() else None,
+        "types": [
+            t for t, f in (("movie", r["is_movie"]), ("tv", r["is_tv"]), ("anime", r["is_anime"])) if f
+        ],
+    }
+
+@app.get("/catalog")
+async def catalog(
+    type: str = "all",
+    sort: str = "recent",
+    page: int = 1,
+    per_page: int = 24,
+    q: str | None = None,
+):
+    where = []
+    params: list = []
+    if type == "movie":
+        where.append("is_movie = 1")
+    elif type == "tv":
+        where.append("is_tv = 1")
+    elif type == "anime":
+        where.append("is_anime = 1")
+    elif type not in ("all", ""):
+        raise HTTPException(status_code=400, detail=f"Unknown type: {type} (all|movie|tv|anime)")
+    if q:
+        where.append("title LIKE ?")
+        params.append(f"%{q}%")
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+    if sort == "title":
+        order = "title COLLATE NOCASE ASC"
+    elif sort == "rating":
+        order = "CAST(rating AS REAL) DESC NULLS LAST"
+    elif sort == "recent":
+        order = "last_seen DESC"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown sort: {sort} (recent|title|rating)")
+
+    per_page = max(1, min(per_page, 100))
+    offset = (max(1, page) - 1) * per_page
+    total = _read_scalar(f"SELECT COUNT(*) FROM subjects {where_sql}", tuple(params)) or 0
+    rows = _read(
+        f"""
+        SELECT subject_id, title, poster_url, slug, rating, year, badge,
+               is_movie, is_tv, is_anime, subject_type, genre
+        FROM subjects {where_sql}
+        ORDER BY {order}
+        LIMIT ? OFFSET ?
+        """,
+        tuple(params + [per_page, offset]),
+    )
+    return {
+        "type": type,
+        "sort": sort,
+        "query": q,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": (total + per_page - 1) // per_page if per_page else 0,
+        "items": [_row_to_item(r) for r in rows],
+    }
+
+@app.get("/catalog/stats")
+async def catalog_stats():
+    total = _read_scalar("SELECT COUNT(*) FROM subjects") or 0
+    movies = _read_scalar("SELECT COUNT(*) FROM subjects WHERE is_movie = 1") or 0
+    tv = _read_scalar("SELECT COUNT(*) FROM subjects WHERE is_tv = 1") or 0
+    anime = _read_scalar("SELECT COUNT(*) FROM subjects WHERE is_anime = 1") or 0
+    untyped = _read_scalar(
+        "SELECT COUNT(*) FROM subjects WHERE is_movie = 0 AND is_tv = 0 AND is_anime = 0"
+    ) or 0
+    untyped_pending = _read_scalar(
+        "SELECT COUNT(*) FROM subjects WHERE subject_type IS NULL AND slug IS NOT NULL"
+    ) or 0
+    subject_types = {
+        str(r[0]): r[1] for r in _read(
+            "SELECT subject_type, COUNT(*) FROM subjects WHERE subject_type IS NOT NULL GROUP BY subject_type"
+        )
+    }
+    kw_rows = _read(
+        "SELECT keyword, pages_walked, items_seen, hit_cap, total_per_upstream FROM keyword_stats ORDER BY keyword"
+    )
+    keyword_stats = {
+        r["keyword"]: {
+            "pages": r["pages_walked"],
+            "items": r["items_seen"],
+            "hit_cap": bool(r["hit_cap"]),
+            "upstream_total": r["total_per_upstream"],
+        }
+        for r in kw_rows
+    }
+    return {
+        "total": total,
+        "movies": movies,
+        "tv": tv,
+        "anime": anime,
+        "untyped": untyped,
+        "untyped_pending_enrichment": untyped_pending,
+        "subject_types": subject_types,
+        "db_path": CATALOG_DB,
+        "refresh_interval_seconds": CATALOG_REFRESH_INTERVAL,
+        "keywords_total": len(CATALOG_KEYWORDS),
+        "walk_state": _walk_state,
+        "keyword_stats": keyword_stats,
+    }
+
+@app.post("/catalog/refresh")
+async def catalog_refresh(mode: str = "full"):
+    """mode=full re-walks keywords + enriches. mode=enrich only enriches untyped."""
+    if mode == "enrich":
+        if _walk_state.get("enriching"):
+            return {"status": "enrich_already_running", "walk_state": _walk_state}
+        asyncio.create_task(_run_enrichment())
+        return {"status": "enrich_queued"}
+    if _walk_state.get("running"):
+        return {"status": "walk_already_running", "walk_state": _walk_state}
+    async def _full():
+        await _run_full_walk()
+        await _run_enrichment()
+    asyncio.create_task(_full())
+    return {"status": "full_queued"}
+
+@app.post("/catalog/add")
+async def catalog_add(slug: str):
+    """Manually fetch a subject by slug and add it to the catalog. For anything
+    the walk missed (e.g. 'Matrix' if upstream ranking doesn't surface it)."""
+    data = await _make_request(f"{API_BASE}/detail?detailPath={slug}")
+    sub = (data.get("data") or {}).get("subject") or {}
+    if not sub.get("subjectId"):
+        raise HTTPException(status_code=502, detail="Detail response has no subject")
+    _upsert_subject(sub)
+    if _write_conn is not None:
+        _write_conn.commit()
+    # run enrichment immediately for this one
+    row = _read("SELECT subject_id, slug FROM subjects WHERE subject_id=?", (str(sub["subjectId"]),))
+    if row:
+        await _enrich_subject(row[0])
+        if _write_conn is not None:
+            _write_conn.commit()
+    return {
+        "status": "added",
+        "subject_id": str(sub["subjectId"]),
+        "title": sub.get("title"),
+        "subject_type": sub.get("subjectType"),
+        "genre": sub.get("genre"),
+    }
+
+# ─── CATALOG (home fallback) ──────────────────────────────────────────────────
 
 async def _get_category_data(
     tab_id: int,
@@ -430,7 +934,7 @@ async def _catalog(
     result["source"] = "filter_sentinel_no_fallback"
     result["note"] = (
         f"No home sections matched for '{kind}'. "
-        f"Try /sections to list available sections, or /browse/{{section}} directly."
+        f"Try /sections to list available sections, /browse/{{section}}, or /catalog."
     )
     return result
 
@@ -849,7 +1353,7 @@ async def discover_tab_variants(tab_id: int = 2, per_page: int = 3):
             "If non_sentinel_variants is non-empty, that payload shape works."
         ) if breaking else (
             "All variants sentinel. /subject/filter requires auth we don't have as a guest. "
-            "Catalogs fall back to /home sections automatically — use those."
+            "Use /catalog for a real indexed catalog."
         ),
     }
 
@@ -877,7 +1381,10 @@ async def health():
         "domain_expires_in": max(0, int(_domain_cache["expires"] - time.time())),
         "client_pool_connections": len(pool.connections) if pool is not None else None,
         "tabs": {"movies": TAB_MOVIES, "tv": TAB_TV, "animation": TAB_ANIMATION},
-        "catalog_sections": CATALOG_SECTIONS,
+        "catalog_db": CATALOG_DB,
+        "catalog_indexed": _read_scalar("SELECT COUNT(*) FROM subjects") or 0,
+        "walk_running": _walk_state.get("running", False),
+        "enriching": _walk_state.get("enriching", False),
     }
 
 # ─── DASHBOARD HTML ───────────────────────────────────────────────────────────
@@ -919,29 +1426,31 @@ footer{text-align:center;padding:80px 0 40px;animation:fadeIn 2s ease}
 <body>
 <div class="container">
 <header>
-<div class="badge">v2.3.3 &middot; Pro API</div>
+<div class="badge">v2.4.1 &middot; Enriched Catalog</div>
 <h1>MovieBox Pro</h1>
 <p style="color:#667;font-size:1.25rem;font-weight:300">State-of-the-Art Pure API Architecture</p>
 </header>
 <div class="grid">
-<div class="card"><div class="card-title"><i>🏠</i> Discover Home</div><p class="card-desc">Headlines, recommended content, and trending blocks. Grouped by section.</p><div class="endpoint">/home</div><a href="/home" target="_blank" class="btn">Launch API</a></div>
-<div class="card"><div class="card-title"><i>📚</i> Aggregate Feed</div><p class="card-desc">Every section flattened into one deduped feed.</p><div class="endpoint">/home/all</div><a href="/home/all" target="_blank" class="btn">Get Feed</a></div>
-<div class="card"><div class="card-title"><i>🧩</i> Sections</div><p class="card-desc">List every home section with type + item count.</p><div class="endpoint">/sections</div><a href="/sections" target="_blank" class="btn">List</a></div>
-<div class="card"><div class="card-title"><i>🗂️</i> Browse Section</div><p class="card-desc">Direct access to any home section. URL-encode spaces: <code>/browse/Top%20Anime</code>.</p><div class="endpoint">/browse/Cinema</div><a href="/browse/Cinema" target="_blank" class="btn">Open</a></div>
-<div class="card"><div class="card-title"><i>🎬</i> Movies</div><p class="card-desc">Home-section fallback: Cinema, Bollywood, Hollywood, South Indian.</p><div class="endpoint">/movies</div><a href="/movies" target="_blank" class="btn">Open</a></div>
-<div class="card"><div class="card-title"><i>📺</i> TV Series</div><p class="card-desc">Home-section fallback: Hot Short TV, Indian Drama, Western TV, Best Asian Series.</p><div class="endpoint">/tv-series</div><a href="/tv-series" target="_blank" class="btn">Open</a></div>
-<div class="card"><div class="card-title"><i>🌸</i> Animation</div><p class="card-desc">Home-section fallback: Top Anime.</p><div class="endpoint">/animation</div><a href="/animation" target="_blank" class="btn">Open</a></div>
-<div class="card"><div class="card-title"><i>🔍</i> Search</div><p class="card-desc">Full-text search. Returns titles, posters, and slugs.</p><div class="endpoint">/search?q=matrix</div><a href="/search?q=matrix" target="_blank" class="btn">Search</a></div>
-<div class="card"><div class="card-title"><i>💡</i> Suggest</div><p class="card-desc">Typeahead. Lean by default. <code>?enrich=true</code> fills slug + sid.</p><div class="endpoint">/search/suggest?q=break</div><a href="/search/suggest?q=break" target="_blank" class="btn">Try</a></div>
-<div class="card"><div class="card-title"><i>🆔</i> Detail</div><p class="card-desc">Full metadata tree for any subject.</p><div class="endpoint">/detail/{slug}</div><a href="/detail/attack-on-titan-hindi-kGWQOIx0d4" target="_blank" class="btn">Fetch</a></div>
-<div class="card"><div class="card-title"><i>🎥</i> Stream</div><p class="card-desc">Direct MP4 sources per resolution + HLS/DASH manifests.</p><div class="endpoint">/api/stream/{sid}</div><a href="/api/stream/56988683026712168?detail_path=attack-on-titan-hindi-kGWQOIx0d4" target="_blank" class="btn">Get</a></div>
-<div class="card"><div class="card-title"><i>📥</i> Stream Proxy</div><p class="card-desc">Range-aware MP4 passthrough for media servers.</p><div class="endpoint">/api/stream/{sid}/proxy</div><a href="/api/stream/56988683026712168/proxy?detail_path=attack-on-titan-hindi-kGWQOIx0d4&res=best" target="_blank" class="btn">Stream</a></div>
-<div class="card"><div class="card-title"><i>💬</i> Captions</div><p class="card-desc">Full caption track list per episode.</p><div class="endpoint">/api/stream/{sid}/captions</div><a href="/api/stream/6207982430134357800/captions?detail_path=breaking-bad-ej6Bp0MCAo7" target="_blank" class="btn">List</a></div>
-<div class="card"><div class="card-title"><i>📄</i> VTT Subtitles</div><p class="card-desc">SRT → WebVTT inline. For &lt;track&gt; elements.</p><div class="endpoint">/api/stream/{sid}/subtitles/{lang}</div><a href="/api/stream/6207982430134357800/subtitles/en?detail_path=breaking-bad-ej6Bp0MCAo7" target="_blank" class="btn">Get VTT</a></div>
-<div class="card"><div class="card-title"><i>🧪</i> Tab Discovery</div><p class="card-desc">Probe tab IDs. Diagnostic — endpoint requires auth we don't have.</p><div class="endpoint">/api/tabs</div><a href="/api/tabs" target="_blank" class="btn">Probe</a></div>
-<div class="card"><div class="card-title"><i>❤️</i> Health</div><p class="card-desc">Liveness + token cache + tab config.</p><div class="endpoint">/health</div><a href="/health" target="_blank" class="btn">Check</a></div>
+<div class="card"><div class="card-title"><i>📇</i> Catalog</div><p class="card-desc">Real catalog from the indexed library. Sort, filter, text-search. Now with type enrichment from <code>/detail</code>.</p><div class="endpoint">/catalog?type=movie&sort=rating</div><a href="/catalog" target="_blank" class="btn">Open</a></div>
+<div class="card"><div class="card-title"><i>📊</i> Stats</div><p class="card-desc">Indexed counts, walk progress, enrichment progress, per-keyword walk data.</p><div class="endpoint">/catalog/stats</div><a href="/catalog/stats" target="_blank" class="btn">View</a></div>
+<div class="card"><div class="card-title"><i>🧬</i> Enrich<span class="tag-new">v2.4.1</span></div><p class="card-desc">Re-run type classification for untyped subjects without re-walking keywords. POST endpoint.</p><div class="endpoint">POST /catalog/refresh?mode=enrich</div><a href="/catalog/stats" target="_blank" class="btn">Trigger</a></div>
+<div class="card"><div class="card-title"><i>➕</i> Manual Add<span class="tag-new">v2.4.1</span></div><p class="card-desc">Insert a specific subject by slug. For anything the walk misses (e.g. Matrix if upstream ranking hides it).</p><div class="endpoint">POST /catalog/add?slug=</div><a href="/catalog/stats" target="_blank" class="btn">Check</a></div>
+<div class="card"><div class="card-title"><i>🏠</i> Home</div><p class="card-desc">Headlines, recommended content, trending blocks.</p><div class="endpoint">/home</div><a href="/home" target="_blank" class="btn">Open</a></div>
+<div class="card"><div class="card-title"><i>📚</i> Aggregate</div><p class="card-desc">Every section flattened into one deduped feed.</p><div class="endpoint">/home/all</div><a href="/home/all" target="_blank" class="btn">Open</a></div>
+<div class="card"><div class="card-title"><i>🧩</i> Sections</div><p class="card-desc">List home sections with type + count.</p><div class="endpoint">/sections</div><a href="/sections" target="_blank" class="btn">List</a></div>
+<div class="card"><div class="card-title"><i>🗂️</i> Browse</div><p class="card-desc">Access any home section by name.</p><div class="endpoint">/browse/Cinema</div><a href="/browse/Cinema" target="_blank" class="btn">Open</a></div>
+<div class="card"><div class="card-title"><i>🎬</i> Movies</div><p class="card-desc">Home fallback — independent of /catalog.</p><div class="endpoint">/movies</div><a href="/movies" target="_blank" class="btn">Open</a></div>
+<div class="card"><div class="card-title"><i>📺</i> TV</div><p class="card-desc">Home fallback.</p><div class="endpoint">/tv-series</div><a href="/tv-series" target="_blank" class="btn">Open</a></div>
+<div class="card"><div class="card-title"><i>🌸</i> Animation</div><p class="card-desc">Home fallback.</p><div class="endpoint">/animation</div><a href="/animation" target="_blank" class="btn">Open</a></div>
+<div class="card"><div class="card-title"><i>🔍</i> Search</div><p class="card-desc">Full-text search via upstream.</p><div class="endpoint">/search?q=matrix</div><a href="/search?q=matrix" target="_blank" class="btn">Search</a></div>
+<div class="card"><div class="card-title"><i>💡</i> Suggest</div><p class="card-desc">Typeahead. <code>?enrich=true</code> for slugs.</p><div class="endpoint">/search/suggest?q=break</div><a href="/search/suggest?q=break" target="_blank" class="btn">Try</a></div>
+<div class="card"><div class="card-title"><i>🆔</i> Detail</div><p class="card-desc">Full metadata for a subject.</p><div class="endpoint">/detail/{slug}</div><a href="/detail/attack-on-titan-hindi-kGWQOIx0d4" target="_blank" class="btn">Fetch</a></div>
+<div class="card"><div class="card-title"><i>🎥</i> Stream</div><p class="card-desc">MP4 sources + HLS/DASH manifests.</p><div class="endpoint">/api/stream/{sid}</div><a href="/api/stream/56988683026712168?detail_path=attack-on-titan-hindi-kGWQOIx0d4" target="_blank" class="btn">Get</a></div>
+<div class="card"><div class="card-title"><i>📥</i> Proxy</div><p class="card-desc">Range-aware MP4 passthrough.</p><div class="endpoint">/api/stream/{sid}/proxy</div><a href="/api/stream/56988683026712168/proxy?detail_path=attack-on-titan-hindi-kGWQOIx0d4&res=best" target="_blank" class="btn">Stream</a></div>
+<div class="card"><div class="card-title"><i>📄</i> VTT</div><p class="card-desc">SRT → WebVTT inline.</p><div class="endpoint">/api/stream/{sid}/subtitles/{lang}</div><a href="/api/stream/6207982430134357800/subtitles/en?detail_path=breaking-bad-ej6Bp0MCAo7" target="_blank" class="btn">Get</a></div>
+<div class="card"><div class="card-title"><i>❤️</i> Health</div><p class="card-desc">Liveness + catalog state.</p><div class="endpoint">/health</div><a href="/health" target="_blank" class="btn">Check</a></div>
 </div>
-<footer><div class="dev-tag">Developer: Faisal</div></footer>
+<footer><div class="dev-tag">Developer: Walter</div></footer>
 </div>
 </body>
 </html>"""
