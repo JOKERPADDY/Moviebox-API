@@ -18,7 +18,7 @@ header{position:sticky;top:0;z-index:100;background:rgba(7,8,12,0.95);backdrop-f
 .search-result:hover{background:rgba(255,61,113,0.1)}
 nav{margin-left:auto;display:flex;gap:4px}
 nav a{color:#9ea3ac;text-decoration:none;padding:8px 16px;border-radius:8px;font-weight:500;font-size:0.9rem;transition:all 0.2s}
-nav a:hover{background:rgba(255,255,255,0.05);color:#fff}
+nav a:hover,nav a.active{background:rgba(255,255,255,0.05);color:#fff}
 main{padding:32px;max-width:1400px;margin:0 auto}
 .section{margin-bottom:48px}
 .section-header{display:flex;align-items:baseline;gap:12px;margin-bottom:16px}
@@ -28,7 +28,7 @@ main{padding:32px;max-width:1400px;margin:0 auto}
 .row{display:flex;gap:16px;overflow-x:auto;padding-bottom:8px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.1) transparent}
 .row::-webkit-scrollbar{height:6px}
 .row::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px}
-.card{flex-shrink:0;width:180px;color:#fff;text-decoration:none;transition:transform 0.2s}
+.card{flex-shrink:0;width:180px;color:#fff;text-decoration:none;transition:transform 0.2s;cursor:pointer}
 .card:hover{transform:translateY(-4px)}
 .poster{width:100%;aspect-ratio:2/3;background:#1a1b22;border-radius:12px;overflow:hidden;margin-bottom:8px;position:relative}
 .poster img{width:100%;height:100%;object-fit:cover}
@@ -36,41 +36,90 @@ main{padding:32px;max-width:1400px;margin:0 auto}
 .card-title{font-size:0.85rem;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;margin-bottom:4px}
 .card-meta{font-size:0.75rem;color:#667}
 .badge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.8);padding:3px 8px;border-radius:6px;font-size:0.65rem;font-weight:700;color:#fff}
+.heart{position:absolute;top:8px;right:8px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,0.7);border:none;color:#fff;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:all 0.2s;padding:0;line-height:1;z-index:2}
+.card:hover .heart{opacity:1}
+.heart.saved{opacity:1;color:#ff3d71}
+.heart:hover{background:#ff3d71;transform:scale(1.1)}
+.progress-bar{height:3px;background:rgba(255,255,255,0.1);border-radius:2px;margin-top:6px;overflow:hidden}
+.progress-fill{height:100%;background:#ff3d71;border-radius:2px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:24px;margin-top:24px}
 .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
 .filter-btn{padding:8px 16px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#9ea3ac;text-decoration:none;font-size:0.9rem;font-weight:500;transition:all 0.2s;cursor:pointer}
 .filter-btn:hover,.filter-btn.active{background:#ff3d71;border-color:#ff3d71;color:#fff}
 .sort-select,.catalog-search{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;color:#fff;font-size:0.9rem;outline:none}
 .catalog-search{min-width:200px}
-.catalog-meta{color:#667;font-size:0.9rem;margin-bottom:16px}
+.catalog-meta{color:#667;font-size:0.9rem;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:16px}
 .pager{display:flex;justify-content:center;gap:16px;margin-top:32px;align-items:center}
 .page-btn{padding:10px 20px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;text-decoration:none;font-weight:600;transition:all 0.2s}
 .page-btn:hover{background:#ff3d71;border-color:#ff3d71}
 .page-info{color:#667}
+
+/* ─── HERO CAROUSEL ─────────────────────────────────────────────────────── */
+.hero{position:relative;width:100%;height:clamp(380px,52vh,560px);border-radius:20px;overflow:hidden;margin-bottom:48px;background:#0e0f14;box-shadow:0 20px 60px rgba(0,0,0,0.4)}
+.hero-slide{position:absolute;inset:0;opacity:0;transition:opacity 0.7s ease;pointer-events:none;z-index:1}
+.hero-slide.active{opacity:1;pointer-events:auto;z-index:2}
+.hero-bg{position:absolute;inset:0;background-size:cover;background-position:center 30%;background-repeat:no-repeat;transform:scale(1.05);transition:transform 8s ease}
+.hero-slide.active .hero-bg{transform:scale(1)}
+.hero-gradient{position:absolute;inset:0;background:linear-gradient(90deg,rgba(7,8,12,0.92) 0%,rgba(7,8,12,0.65) 45%,rgba(7,8,12,0.15) 75%,rgba(7,8,12,0.4) 100%),linear-gradient(0deg,rgba(7,8,12,0.95) 0%,rgba(7,8,12,0.3) 30%,transparent 60%)}
+.hero-content{position:absolute;bottom:0;left:0;right:0;padding:56px 56px 72px;max-width:750px;z-index:3}
+.hero-badge{display:inline-block;background:linear-gradient(90deg,#ff3d71,#ff1a4f);color:#fff;padding:5px 14px;border-radius:6px;font-size:0.72rem;font-weight:800;margin-bottom:18px;text-transform:uppercase;letter-spacing:1.5px;box-shadow:0 4px 15px rgba(255,61,113,0.4)}
+.hero-title{font-size:clamp(1.8rem,4.5vw,3.2rem);font-weight:800;line-height:1.05;letter-spacing:-1.5px;margin-bottom:22px;text-shadow:0 4px 30px rgba(0,0,0,0.6);max-width:640px}
+.hero-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.hero-btn{padding:13px 26px;border-radius:10px;font-weight:700;font-size:0.95rem;cursor:pointer;border:none;transition:all 0.2s;text-decoration:none;display:inline-flex;align-items:center;gap:8px;font-family:inherit}
+.hero-btn-primary{background:#ff3d71;color:#fff;box-shadow:0 6px 20px rgba(255,61,113,0.35)}
+.hero-btn-primary:hover{background:#ff1a4f;transform:translateY(-2px);box-shadow:0 10px 25px rgba(255,61,113,0.5)}
+.hero-btn-secondary{background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.25);backdrop-filter:blur(10px)}
+.hero-btn-secondary:hover{background:rgba(255,255,255,0.22);border-color:rgba(255,255,255,0.4)}
+.hero-btn-secondary.saved{background:rgba(255,61,113,0.25);border-color:#ff3d71;color:#fff}
+.hero-arrow{position:absolute;top:50%;transform:translateY(-50%);width:48px;height:48px;background:rgba(0,0,0,0.5);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.18);border-radius:50%;color:#fff;font-size:1.6rem;cursor:pointer;z-index:4;display:flex;align-items:center;justify-content:center;opacity:0;transition:all 0.25s;padding:0;line-height:1;font-family:inherit}
+.hero:hover .hero-arrow{opacity:1}
+.hero-arrow:hover{background:#ff3d71;border-color:#ff3d71;transform:translateY(-50%) scale(1.08)}
+.hero-prev{left:20px}
+.hero-next{right:20px}
+.hero-dots{position:absolute;bottom:22px;right:32px;display:flex;gap:8px;z-index:4}
+.hero-dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.35);border:none;cursor:pointer;padding:0;transition:all 0.3s;font-family:inherit}
+.hero-dot.active{background:#ff3d71;width:28px;border-radius:4px;box-shadow:0 0 15px rgba(255,61,113,0.6)}
+.hero-dot:hover{background:rgba(255,255,255,0.6)}
+
 .detail-header{display:grid;grid-template-columns:300px 1fr;gap:40px;margin-top:20px}
 .detail-poster img{width:100%;border-radius:16px}
 .detail-info h1{font-size:2.5rem;font-weight:800;margin-bottom:16px;letter-spacing:-1px;line-height:1.1}
+.detail-actions{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
 .desc{color:#9ea3ac;line-height:1.6;margin-bottom:20px;max-width:700px}
 .meta{display:flex;gap:16px;margin-bottom:24px;color:#667;flex-wrap:wrap}
 .meta span{padding:4px 10px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:0.85rem}
 .play-btn{padding:14px 32px;background:#ff3d71;color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;transition:all 0.2s}
 .play-btn:hover{background:#ff1a4f;transform:translateY(-2px)}
+.icon-btn{padding:14px 20px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;color:#fff;font-size:1rem;cursor:pointer;transition:all 0.2s;font-weight:600}
+.icon-btn:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2)}
+.icon-btn.saved{background:rgba(255,61,113,0.15);border-color:#ff3d71;color:#ff3d71}
 .seasons{display:flex;flex-direction:column;gap:24px;margin-top:8px}
 .season h3{margin-bottom:12px;font-size:1.1rem}
 .episodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
-.ep-btn{padding:10px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;cursor:pointer;font-size:0.85rem;text-align:left;transition:all 0.2s}
+.ep-btn{padding:10px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;cursor:pointer;font-size:0.85rem;text-align:left;transition:all 0.2s;display:flex;align-items:center;gap:8px;font-family:inherit}
 .ep-btn:hover{background:#ff3d71;border-color:#ff3d71}
+.ep-dot{width:8px;height:8px;border-radius:50%;background:#ff3d71;flex-shrink:0}
 .raw-detail{margin-top:40px;color:#667;font-size:0.85rem}
 .raw-detail summary{cursor:pointer;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px}
 .raw-detail pre{margin-top:8px;padding:16px;background:#0e0f14;border-radius:8px;overflow:auto;max-height:400px;font-size:0.75rem;color:#9ea3ac}
 .player-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:1000;display:flex;align-items:center;justify-content:center;padding:32px}
 .player-container{width:100%;max-width:1200px;position:relative}
-.player-video{width:100%;max-height:80vh;background:#000;border-radius:12px;display:block}
-.player-info{margin-top:12px;color:#667;font-size:0.85rem;text-align:center}
-.close-btn{position:absolute;top:-16px;right:-16px;width:44px;height:44px;background:#ff3d71;color:#fff;border:none;border-radius:50%;font-size:1.2rem;cursor:pointer;z-index:10;transition:transform 0.2s}
+.player-video{width:100%;max-height:75vh;background:#000;border-radius:12px;display:block}
+.player-bar{margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.player-info{color:#9ea3ac;font-size:0.9rem;flex:1 1 200px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.player-info strong{color:#fff}
+.player-controls{display:flex;gap:8px;align-items:center;flex-shrink:0}
+.player-select{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;color:#fff;font-size:0.85rem;outline:none;cursor:pointer;font-family:inherit}
+.player-select:hover{border-color:rgba(255,255,255,0.2)}
+.close-btn{position:absolute;top:-16px;right:-16px;width:44px;height:44px;background:#ff3d71;color:#fff;border:none;border-radius:50%;font-size:1.2rem;cursor:pointer;z-index:10;transition:transform 0.2s;font-family:inherit}
 .close-btn:hover{transform:scale(1.1)}
+.resume-toast{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);padding:10px 20px;border-radius:20px;font-size:0.85rem;color:#fff;border:1px solid rgba(255,255,255,0.1);pointer-events:none;opacity:0;transition:opacity 0.3s}
+.resume-toast.show{opacity:1}
 .loading{padding:60px;text-align:center;color:#667}
 .error{padding:40px;background:rgba(255,61,113,0.1);border:1px solid #ff3d71;border-radius:12px;color:#ff3d71}
+.empty{padding:80px 40px;text-align:center;color:#667;background:rgba(255,255,255,0.02);border-radius:16px;border:1px dashed rgba(255,255,255,0.1)}
+.empty-icon{font-size:3rem;margin-bottom:16px;opacity:0.5}
+.empty-title{font-size:1.2rem;color:#fff;font-weight:600;margin-bottom:8px}
 .cast{margin-top:24px}
 .cast-label{font-size:0.8rem;color:#667;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:10px}
 .cast-chips{display:flex;gap:8px;flex-wrap:wrap}
@@ -82,9 +131,17 @@ main{padding:32px;max-width:1400px;margin:0 auto}
 .lang-chip:hover{background:rgba(255,61,113,0.1);border-color:#ff3d71;color:#fff}
 .lang-chip.active{background:#ff3d71;border-color:#ff3d71;color:#fff;font-weight:700}
 .access-note{margin-top:12px;color:#667;font-size:0.85rem;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:2px solid #ff3d71}
-.ep-btn.locked{color:#667}
-.ep-btn.locked:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.2)}
-@media(max-width:768px){header{padding:12px 16px;flex-wrap:wrap}.search-wrap{flex:1 1 100%;order:3}main{padding:16px}.detail-header{grid-template-columns:1fr;gap:20px}.detail-poster{max-width:200px}.detail-info h1{font-size:1.8rem}.card{width:140px}}
+.page-header{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.page-header h1{font-size:1.8rem;font-weight:800;letter-spacing:-0.5px}
+.page-header .count{color:#667;font-size:0.9rem}
+.clear-btn{background:transparent;border:1px solid rgba(255,61,113,0.3);color:#ff3d71;padding:6px 14px;border-radius:8px;font-size:0.85rem;cursor:pointer;transition:all 0.2s;font-family:inherit}
+.clear-btn:hover{background:rgba(255,61,113,0.1);border-color:#ff3d71}
+.history-card{position:relative}
+.history-meta{display:flex;gap:8px;align-items:center;font-size:0.75rem;color:#667;margin-top:4px}
+.history-meta .badge-inline{background:rgba(255,61,113,0.15);color:#ff3d71;padding:2px 8px;border-radius:4px;font-weight:600}
+.resume-btn{margin-top:8px;padding:8px 12px;background:rgba(255,61,113,0.15);border:1px solid rgba(255,61,113,0.3);border-radius:8px;color:#fff;font-size:0.8rem;cursor:pointer;width:100%;transition:all 0.2s;font-weight:600;font-family:inherit}
+.resume-btn:hover{background:#ff3d71;border-color:#ff3d71}
+@media(max-width:768px){header{padding:12px 16px;flex-wrap:wrap}.search-wrap{flex:1 1 100%;order:3}nav{margin-left:0;width:100%;justify-content:flex-start;overflow-x:auto}main{padding:16px}.detail-header{grid-template-columns:1fr;gap:20px}.detail-poster{max-width:200px}.detail-info h1{font-size:1.8rem}.card{width:140px}.hero{height:clamp(320px,50vh,420px);border-radius:14px;margin-bottom:32px}.hero-content{padding:24px 20px 56px;max-width:100%}.hero-title{font-size:1.5rem;margin-bottom:14px}.hero-badge{font-size:0.65rem;padding:4px 10px;margin-bottom:12px}.hero-btn{padding:10px 18px;font-size:0.85rem}.hero-arrow{opacity:1;width:36px;height:36px;font-size:1.2rem}.hero-prev{left:8px}.hero-next{right:8px}.hero-dots{bottom:14px;right:16px;gap:6px}.hero-dot{width:6px;height:6px}.hero-dot.active{width:20px}}
 </style>
 </head>
 <body>
@@ -94,9 +151,11 @@ main{padding:32px;max-width:1400px;margin:0 auto}
     <input id="search" placeholder="Search movies, series, anime..." autocomplete="off">
     <div id="search-results"></div>
   </div>
-  <nav>
-    <a href="#/">Home</a>
-    <a href="#/catalog">Catalog</a>
+  <nav id="main-nav">
+    <a href="#/" data-nav="/">Home</a>
+    <a href="#/catalog" data-nav="/catalog">Catalog</a>
+    <a href="#/bookmarks" data-nav="/bookmarks">Bookmarks</a>
+    <a href="#/history" data-nav="/history">History</a>
   </nav>
 </header>
 <main id="app"></main>
@@ -143,29 +202,207 @@ function escape(str) {
   return String(str ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-function renderCard(item) {
-  return el('a', { class: 'card', href: `#/detail/${item.slug || ''}` },
-    el('div', { class: 'poster' },
-      item.poster_url ? el('img', { src: item.poster_url, loading: 'lazy', alt: item.name || '' }) : el('div', { class: 'no-poster' }, '?'),
-      item.badge ? el('div', { class: 'badge' }, item.badge) : null
-    ),
-    el('div', { class: 'card-title' }, item.name || '?'),
-    el('div', { class: 'card-meta' },
-      item.rating ? `★ ${item.rating}` : '',
-      item.rating && item.year ? ' · ' : '',
-      item.year || ''
-    )
-  );
+function formatTime(seconds) {
+  if (!seconds || !isFinite(seconds) || seconds < 0) return '0:00';
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${m}:${String(ss).padStart(2, '0')}`;
 }
 
+const LS = {
+  get(key, fallback) {
+    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (_) { return fallback; }
+  },
+  set(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {} },
+  remove(key) { try { localStorage.removeItem(key); } catch (_) {} },
+};
+
+const KEY_BOOKMARKS = 'mb_bookmarks';
+const KEY_HISTORY = 'mb_history';
+const HISTORY_MAX = 200;
+
+function getBookmarks() { return LS.get(KEY_BOOKMARKS, {}); }
+function isBookmarked(slug) { return !!getBookmarks()[slug]; }
+
+function toggleBookmark(item) {
+  const map = getBookmarks();
+  if (map[item.slug]) {
+    delete map[item.slug];
+  } else {
+    map[item.slug] = {
+      slug: item.slug, name: item.name, poster_url: item.poster_url,
+      rating: item.rating, year: item.year, badge: item.badge, saved_at: Date.now(),
+    };
+  }
+  LS.set(KEY_BOOKMARKS, map);
+  document.querySelectorAll(`.heart[data-slug="${CSS.escape(item.slug)}"]`).forEach(h => {
+    h.classList.toggle('saved', !!map[item.slug]);
+    h.textContent = map[item.slug] ? '♥' : '♡';
+  });
+}
+
+function getHistory() { return LS.get(KEY_HISTORY, []); }
+
+function saveHistoryEntry({ slug, name, poster_url, se, ep, position, duration }) {
+  if (!slug || se == null || ep == null) return;
+  const list = getHistory();
+  const idx = list.findIndex(h => h.slug === slug && h.se === se && h.ep === ep);
+  const entry = {
+    slug, name, poster_url, se, ep,
+    position: Math.max(0, Math.floor(position || 0)),
+    duration: Math.max(0, Math.floor(duration || 0)),
+    updated_at: Date.now(),
+  };
+  if (idx >= 0) list.splice(idx, 1);
+  list.unshift(entry);
+  LS.set(KEY_HISTORY, list.slice(0, HISTORY_MAX));
+}
+
+function getHistoryEntry(slug, se, ep) {
+  return getHistory().find(h => h.slug === slug && h.se === se && h.ep === ep);
+}
+
+function isWatched(slug, se, ep) {
+  const entry = getHistoryEntry(slug, se, ep);
+  return !!entry && entry.position > 5;
+}
+
+// ─── HERO CAROUSEL ──────────────────────────────────────────────────────────
+function renderBannerCarousel(items) {
+  const heroEl = el('div', { class: 'hero' });
+  const slides = [];
+  let currentIndex = 0;
+  let autoplayTimer = null;
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const slide = el('div', { class: `hero-slide${i === 0 ? ' active' : ''}` });
+
+    if (item.poster_url) {
+      slide.append(el('div', { class: 'hero-bg', style: `background-image:url("${item.poster_url.replace(/"/g, '')}")` }));
+    }
+    slide.append(el('div', { class: 'hero-gradient' }));
+
+    const saved = isBookmarked(item.slug);
+    const saveBtn = el('button', {
+      class: `hero-btn hero-btn-secondary${saved ? ' saved' : ''}`,
+      onclick: (e) => {
+        e.stopPropagation();
+        toggleBookmark(item);
+        const isSaved = isBookmarked(item.slug);
+        e.currentTarget.classList.toggle('saved', isSaved);
+        e.currentTarget.textContent = isSaved ? '♥ Saved' : '♡ Save';
+      },
+    }, saved ? '♥ Saved' : '♡ Save');
+
+    slide.append(el('div', { class: 'hero-content' },
+      item.badge ? el('div', { class: 'hero-badge' }, item.badge) : null,
+      el('h1', { class: 'hero-title' }, item.name || ''),
+      el('div', { class: 'hero-actions' },
+        el('a', { class: 'hero-btn hero-btn-primary', href: `#/detail/${item.slug}` }, '▶ Watch Now'),
+        saveBtn
+      )
+    ));
+
+    slides.push(slide);
+    heroEl.append(slide);
+  }
+
+  const dots = el('div', { class: 'hero-dots' });
+  for (let i = 0; i < items.length; i++) {
+    dots.append(el('button', {
+      class: `hero-dot${i === 0 ? ' active' : ''}`,
+      onclick: () => show(i),
+    }));
+  }
+  heroEl.append(dots);
+
+  const prevBtn = el('button', { class: 'hero-arrow hero-prev', onclick: () => show((currentIndex - 1 + items.length) % items.length) }, '‹');
+  const nextBtn = el('button', { class: 'hero-arrow hero-next', onclick: () => show((currentIndex + 1) % items.length) }, '›');
+  heroEl.append(prevBtn, nextBtn);
+
+  function show(idx) {
+    currentIndex = idx;
+    slides.forEach((s, i) => s.classList.toggle('active', i === idx));
+    dots.querySelectorAll('.hero-dot').forEach((d, i) => d.classList.toggle('active', i === idx));
+    resetAutoplay();
+  }
+
+  function resetAutoplay() {
+    if (autoplayTimer) clearInterval(autoplayTimer);
+    autoplayTimer = setInterval(() => {
+      if (!document.body.contains(heroEl)) { clearInterval(autoplayTimer); autoplayTimer = null; return; }
+      show((currentIndex + 1) % items.length);
+    }, 6000);
+  }
+
+  if (items.length > 1) {
+    resetAutoplay();
+    heroEl.addEventListener('mouseenter', () => { if (autoplayTimer) { clearInterval(autoplayTimer); autoplayTimer = null; } });
+    heroEl.addEventListener('mouseleave', resetAutoplay);
+  }
+
+  return heroEl;
+}
+
+function renderCard(item, opts = {}) {
+  const saved = isBookmarked(item.slug);
+  const card = el('div', { class: 'card', onclick: () => { location.hash = `#/detail/${item.slug || ''}`; } });
+
+  const poster = el('div', { class: 'poster' },
+    item.poster_url ? el('img', { src: item.poster_url, loading: 'lazy', alt: item.name || '' }) : el('div', { class: 'no-poster' }, '?'),
+    item.badge ? el('div', { class: 'badge' }, item.badge) : null,
+    el('button', {
+      class: `heart${saved ? ' saved' : ''}`,
+      'data-slug': item.slug || '',
+      onclick: (e) => { e.stopPropagation(); toggleBookmark(item); },
+      title: saved ? 'Remove bookmark' : 'Save to bookmarks',
+    }, saved ? '♥' : '♡')
+  );
+  card.append(poster);
+  card.append(el('div', { class: 'card-title' }, item.name || '?'));
+
+  const meta = [];
+  if (item.rating) meta.push(`★ ${item.rating}`);
+  if (item.year) meta.push(item.year);
+  card.append(el('div', { class: 'card-meta' }, meta.join(' · ')));
+
+  if (opts.progress && opts.progress.duration > 0) {
+    const pct = Math.min(100, (opts.progress.position / opts.progress.duration) * 100);
+    card.append(el('div', { class: 'progress-bar' },
+      el('div', { class: 'progress-fill', style: `width:${pct}%` })
+    ));
+  }
+
+  if (opts.resumeOnClick) {
+    card.append(el('button', {
+      class: 'resume-btn',
+      onclick: (e) => { e.stopPropagation(); opts.resumeOnClick(); },
+    }, opts.resumeLabel || '▶ Resume'));
+  }
+
+  return card;
+}
+
+// ─── HOME ───────────────────────────────────────────────────────────────────
 async function renderHome() {
   const app = $('#app');
   app.innerHTML = '<div class="loading">Loading...</div>';
   try {
     const data = await api('/home');
     app.innerHTML = '';
+
+    let bannerItems = null;
     for (const section of data.sections) {
       if (!section.items.length) continue;
+
+      if (section.section === 'Banner') {
+        bannerItems = section.items;
+        continue;
+      }
+
       const header = el('div', { class: 'section-header' },
         el('h2', { onclick: () => { location.hash = `#/browse/${encodeURIComponent(section.section)}`; } }, section.section),
         el('span', { class: 'count' }, `${section.count} items`)
@@ -173,11 +410,16 @@ async function renderHome() {
       const row = el('div', { class: 'row' }, ...section.items.map(renderCard));
       app.append(el('section', { class: 'section' }, header, row));
     }
+
+    if (bannerItems && bannerItems.length > 0) {
+      app.prepend(renderBannerCarousel(bannerItems));
+    }
   } catch (e) {
     app.innerHTML = `<div class="error">${escape(e.message)}</div>`;
   }
 }
 
+// ─── CATALOG ────────────────────────────────────────────────────────────────
 async function renderCatalog(params) {
   const app = $('#app');
   const type = params.get('type') || 'all';
@@ -224,13 +466,13 @@ async function renderCatalog(params) {
 
     app.append(filters);
     app.append(el('div', { class: 'catalog-meta' },
-      `${data.total} results · page ${data.page} of ${data.total_pages || 1}`));
+      el('span', {}, `${data.total} results · page ${data.page} of ${data.total_pages || 1}`)
+    ));
 
     const grid = el('div', { class: 'grid' });
     for (const item of data.items) {
       const badge = (item.types || [])[0];
-      const card = renderCard({ ...item, badge });
-      grid.append(card);
+      grid.append(renderCard({ ...item, badge }));
     }
     app.append(grid);
 
@@ -247,6 +489,7 @@ async function renderCatalog(params) {
   }
 }
 
+// ─── BROWSE ─────────────────────────────────────────────────────────────────
 async function renderBrowse(section) {
   const app = $('#app');
   app.innerHTML = '<div class="loading">Loading...</div>';
@@ -263,6 +506,96 @@ async function renderBrowse(section) {
   }
 }
 
+// ─── BOOKMARKS ──────────────────────────────────────────────────────────────
+function renderBookmarks() {
+  const app = $('#app');
+  const items = Object.values(getBookmarks()).sort((a, b) => b.saved_at - a.saved_at);
+  app.innerHTML = '';
+
+  const header = el('div', { class: 'page-header' },
+    el('h1', {}, 'Bookmarks'),
+    el('span', { class: 'count' }, `${items.length} saved`)
+  );
+  if (items.length > 0) {
+    header.append(el('button', {
+      class: 'clear-btn',
+      onclick: () => {
+        if (confirm(`Clear all ${items.length} bookmarks?`)) {
+          LS.remove(KEY_BOOKMARKS);
+          renderBookmarks();
+        }
+      }
+    }, 'Clear all'));
+  }
+  app.append(header);
+
+  if (items.length === 0) {
+    app.append(el('div', { class: 'empty' },
+      el('div', { class: 'empty-icon' }, '♡'),
+      el('div', { class: 'empty-title' }, 'No bookmarks yet'),
+      el('div', {}, 'Click the heart on any poster to save it here.')
+    ));
+    return;
+  }
+
+  const grid = el('div', { class: 'grid' });
+  for (const item of items) grid.append(renderCard(item));
+  app.append(grid);
+}
+
+// ─── HISTORY ────────────────────────────────────────────────────────────────
+function renderHistory() {
+  const app = $('#app');
+  const items = getHistory().sort((a, b) => b.updated_at - a.updated_at);
+  app.innerHTML = '';
+
+  const header = el('div', { class: 'page-header' },
+    el('h1', {}, 'Watch History'),
+    el('span', { class: 'count' }, `${items.length} entries`)
+  );
+  if (items.length > 0) {
+    header.append(el('button', {
+      class: 'clear-btn',
+      onclick: () => {
+        if (confirm(`Clear all ${items.length} history entries?`)) {
+          LS.remove(KEY_HISTORY);
+          renderHistory();
+        }
+      }
+    }, 'Clear all'));
+  }
+  app.append(header);
+
+  if (items.length === 0) {
+    app.append(el('div', { class: 'empty' },
+      el('div', { class: 'empty-icon' }, '▶'),
+      el('div', { class: 'empty-title' }, 'Nothing watched yet'),
+      el('div', {}, 'Play something and it will show up here.')
+    ));
+    return;
+  }
+
+  const grid = el('div', { class: 'grid' });
+  for (const item of items) {
+    const card = renderCard(
+      { name: item.name, slug: item.slug, poster_url: item.poster_url },
+      {
+        progress: { position: item.position, duration: item.duration },
+        resumeLabel: item.position > 0 ? `▶ Resume at ${formatTime(item.position)}` : '▶ Play',
+        resumeOnClick: () => openPlayerBySlug(item.slug, item.se, item.ep),
+      }
+    );
+    card.classList.add('history-card');
+    card.append(el('div', { class: 'history-meta' },
+      el('span', { class: 'badge-inline' }, `S${item.se} E${item.ep}`),
+      el('span', {}, item.duration > 0 ? `${formatTime(item.position)} / ${formatTime(item.duration)}` : formatTime(item.position))
+    ));
+    grid.append(card);
+  }
+  app.append(grid);
+}
+
+// ─── DETAIL ─────────────────────────────────────────────────────────────────
 function extractSeasons(resource) {
   if (!resource) return [];
   const candidates = [
@@ -333,11 +666,14 @@ async function renderDetail(slug) {
         );
         const epGrid = el('div', { class: 'episodes' });
         for (const epInfo of eps) {
-          const locked = freeEps > 0 && epInfo.ep > freeEps;
-          epGrid.append(el('button', {
-            class: `ep-btn${locked ? ' locked' : ''}`,
-            onclick: () => openPlayer(sid, slug, se, epInfo.ep)
-          }, `Ep ${epInfo.ep}${locked ? ' 🔒' : ''}`));
+          const watched = isWatched(slug, se, epInfo.ep);
+          const btn = el('button', {
+            class: 'ep-btn',
+            onclick: () => openPlayer(sid, slug, se, epInfo.ep, eps, subject.title || '', posterUrl),
+          });
+          if (watched) btn.append(el('span', { class: 'ep-dot' }));
+          btn.append(`Ep ${epInfo.ep}`);
+          epGrid.append(btn);
         }
         seasonDiv.append(epGrid);
         seasonsDiv.append(seasonDiv);
@@ -346,28 +682,45 @@ async function renderDetail(slug) {
         playArea.append(seasonsDiv);
         if (freeEps > 0) {
           const previewMin = access.previewSeconds ? Math.round(access.previewSeconds / 60) : 0;
-          const note = `Episodes 1–${freeEps} free${previewMin ? `, ${previewMin}min preview after` : ''}`;
-          playArea.append(el('div', { class: 'access-note' }, note));
+          playArea.append(el('div', { class: 'access-note' },
+            `Upstream marks eps 1–${freeEps} as free${previewMin ? ` (${previewMin}min preview after)` : ''}.`));
         }
       } else {
         playArea.append(el('button', {
           class: 'play-btn',
-          onclick: () => openPlayer(sid, slug, 1, 1)
+          onclick: () => openPlayer(sid, slug, 1, 1, [], subject.title || '', posterUrl),
         }, '▶ Play'));
       }
     } else {
       playArea.append(el('button', {
         class: 'play-btn',
-        onclick: () => openPlayer(sid, slug, 1, 1)
+        onclick: () => openPlayer(sid, slug, 1, 1, [], subject.title || '', posterUrl),
       }, '▶ Play'));
     }
+
+    const saved = isBookmarked(slug);
+    const actions = el('div', { class: 'detail-actions' },
+      el('button', {
+        class: `icon-btn${saved ? ' saved' : ''}`,
+        onclick: (e) => {
+          toggleBookmark({
+            slug, name: subject.title || '', poster_url: posterUrl,
+            rating: subject.imdbRatingValue, year: (subject.releaseDate || '').slice(0, 4),
+            badge: subject.corner,
+          });
+          const btn = e.currentTarget;
+          const nowSaved = isBookmarked(slug);
+          btn.classList.toggle('saved', nowSaved);
+          btn.textContent = nowSaved ? '♥ Saved' : '♡ Bookmark';
+        },
+      }, saved ? '♥ Saved' : '♡ Bookmark')
+    );
 
     const stars = root.stars || [];
     const castBlock = stars.length ? el('div', { class: 'cast' },
       el('div', { class: 'cast-label' }, 'Cast'),
       el('div', { class: 'cast-chips' }, ...stars.slice(0, 8).map(s =>
-        el('span', { class: 'cast-chip' },
-          s.name + (s.character ? ` · ${s.character}` : ''))
+        el('span', { class: 'cast-chip' }, s.name + (s.character ? ` · ${s.character}` : ''))
       ))
     ) : null;
 
@@ -384,6 +737,7 @@ async function renderDetail(slug) {
 
     const info = el('div', { class: 'detail-info' },
       el('h1', {}, subject.title || '?'),
+      actions,
       subject.description ? el('p', { class: 'desc' }, subject.description) : null,
       metaItems.length ? el('div', { class: 'meta' }, ...metaItems.map(m => el('span', {}, m))) : null,
       playArea,
@@ -393,7 +747,6 @@ async function renderDetail(slug) {
 
     app.append(el('div', { class: 'detail-header' }, poster, info));
 
-    // collapsible raw detail for debugging
     const raw = el('details', { class: 'raw-detail' },
       el('summary', {}, 'Raw detail response (for debugging)')
     );
@@ -404,58 +757,207 @@ async function renderDetail(slug) {
   }
 }
 
-async function openPlayer(sid, slug, se, ep) {
+async function openPlayerBySlug(slug, se, ep) {
+  try {
+    const data = await api(`/detail/${slug}`);
+    const subject = (data.data || {}).subject || {};
+    openPlayer(subject.subjectId, slug, se, ep, [], subject.title || '', (subject.cover || {}).url);
+  } catch (e) {
+    alert(`Could not load: ${e.message}`);
+  }
+}
+
+// ─── PLAYER ─────────────────────────────────────────────────────────────────
+async function openPlayer(sid, slug, se, ep, episodeList, showTitle, posterUrl) {
+  document.querySelectorAll('.player-overlay').forEach(n => n.remove());
+
   const overlay = el('div', { class: 'player-overlay' },
     el('div', { class: 'player-container' },
-      el('div', { class: 'loading' }, 'Loading stream...')
+      el('div', { class: 'loading' }, `Loading episode ${ep}...`)
     )
   );
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   document.addEventListener('keydown', function esc(e) {
-    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
+    if (e.key === 'Escape' && !document.fullscreenElement) {
+      overlay.remove();
+      document.removeEventListener('keydown', esc);
+    }
   });
   document.body.append(overlay);
 
+  const container = overlay.querySelector('.player-container');
+  const buildHeader = (title) => {
+    container.innerHTML = '';
+    container.append(el('button', { class: 'close-btn', onclick: () => overlay.remove() }, '✕'));
+    if (title) container.append(el('div', { class: 'player-info', style: 'margin-bottom:12px;color:#fff' }, title));
+  };
+
   try {
     const stream = await api(`/api/stream/${sid}`, { detail_path: slug, se, ep });
-    if (!stream.has_resource || !stream.sources || !stream.sources.length) {
-      throw new Error(stream.note || 'No stream available');
+    const noResource = !stream.has_resource || !stream.sources || !stream.sources.length;
+
+    if (noResource) {
+      buildHeader(`Episode ${ep} — not available`);
+      container.append(el('div', { class: 'access-note', style: 'padding:16px;font-size:0.95rem' },
+        stream.note || 'This episode has no stream right now.'));
+      const available = (episodeList || []).filter(e => e.ep !== ep);
+      if (available.length) {
+        container.append(el('div', { class: 'cast-label', style: 'margin-top:16px' }, 'Try another episode'));
+        const picker = el('div', { class: 'episodes', style: 'max-height:200px;overflow-y:auto' });
+        for (const alt of available) {
+          picker.append(el('button', {
+            class: 'ep-btn',
+            onclick: () => openPlayer(sid, slug, se, alt.ep, episodeList, showTitle, posterUrl),
+          }, `Ep ${alt.ep}`));
+        }
+        container.append(picker);
+      }
+      return;
     }
-    const best = stream.sources.reduce((a, b) => {
-      const ra = parseInt(a.resolution) || 0;
-      const rb = parseInt(b.resolution) || 0;
-      return rb > ra ? b : a;
-    });
+
+    const sources = [...stream.sources].sort((a, b) => (parseInt(b.resolution) || 0) - (parseInt(a.resolution) || 0));
+    const bestRes = sources[0].resolution || 'best';
 
     let captions = [];
     try {
       const capData = await api(`/api/stream/${sid}/captions`, { detail_path: slug, se, ep });
       captions = capData.captions || [];
-    } catch (_) { /* captions optional */ }
+    } catch (_) {}
 
-    const container = overlay.querySelector('.player-container');
     container.innerHTML = '';
     container.append(el('button', { class: 'close-btn', onclick: () => overlay.remove() }, '✕'));
 
-    const proxyUrl = `/api/stream/${sid}/proxy?${qs({ detail_path: slug, se, ep, res: 'best' })}`;
-    const video = el('video', { class: 'player-video', controls: 'controls', autoplay: 'autoplay', playsinline: '' });
-    video.append(el('source', { src: proxyUrl, type: 'video/mp4' }));
+    const video = el('video', {
+      class: 'player-video',
+      controls: 'controls',
+      autoplay: 'autoplay',
+      playsinline: '',
+      crossorigin: 'anonymous',
+    });
+
+    const buildProxyUrl = (res) => `/api/stream/${sid}/proxy?${qs({ detail_path: slug, se, ep, res })}`;
+    const sourceEl = el('source', { src: buildProxyUrl(bestRes), type: 'video/mp4' });
+    video.append(sourceEl);
 
     for (const cap of captions) {
       const trackUrl = `/api/stream/${sid}/subtitles/${cap.lan}?${qs({ detail_path: slug, se, ep })}`;
-      const attrs = {
+      video.append(el('track', {
         kind: 'subtitles',
         src: trackUrl,
         srclang: cap.lan,
         label: cap.lanName || cap.lan,
-      };
-      if ((cap.lan || '').toLowerCase() === 'en') attrs.default = 'default';
-      video.append(el('track', attrs));
+      }));
     }
 
+    const qualitySelect = el('select', { class: 'player-select', title: 'Quality' });
+    for (const s of sources) {
+      const opt = el('option', { value: s.resolution || 'best' }, s.resolution || 'best');
+      if (s.resolution === bestRes) opt.selected = true;
+      qualitySelect.append(opt);
+    }
+    qualitySelect.addEventListener('change', (e) => {
+      const newRes = e.target.value;
+      const t = video.currentTime;
+      const wasPlaying = !video.paused;
+      sourceEl.src = buildProxyUrl(newRes);
+      video.load();
+      video.addEventListener('loadedmetadata', () => {
+        video.currentTime = t;
+        if (wasPlaying) video.play();
+      }, { once: true });
+    });
+
+    const subSelect = el('select', { class: 'player-select', title: 'Subtitles' });
+    subSelect.append(el('option', { value: '-1' }, 'Subtitles off'));
+    captions.forEach((cap, i) => {
+      subSelect.append(el('option', { value: String(i) }, cap.lanName || cap.lan));
+    });
+    const defaultIdx = captions.findIndex(c => (c.lan || '').toLowerCase() === 'en');
+    const initialSubIdx = defaultIdx >= 0 ? defaultIdx : (captions.length > 0 ? 0 : -1);
+    subSelect.value = String(initialSubIdx);
+
+    function applySubtitle(idx) {
+      const tracks = video.textTracks;
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = (i === idx) ? 'showing' : 'disabled';
+      }
+    }
+    subSelect.addEventListener('change', (e) => applySubtitle(parseInt(e.target.value)));
+    video.addEventListener('loadedmetadata', () => applySubtitle(initialSubIdx), { once: true });
+
     container.append(video);
-    container.append(el('div', { class: 'player-info' },
-      `${best.resolution || '?'} · ${best.format || '?'} · ${best.codec || '?'} · ${captions.length} subtitle track${captions.length === 1 ? '' : 's'}`));
+
+    const infoLeft = el('div', { class: 'player-info' },
+      el('strong', {}, `Episode ${ep}`),
+      showTitle ? ` · ${showTitle}` : '',
+      ` · ${sources.length} qualit${sources.length === 1 ? 'y' : 'ies'}`,
+      captions.length ? ` · ${captions.length} subtitle track${captions.length === 1 ? '' : 's'}` : ''
+    );
+
+    container.append(el('div', { class: 'player-bar' }, infoLeft,
+      el('div', { class: 'player-controls' }, qualitySelect, captions.length ? subSelect : null)));
+
+    const existing = getHistoryEntry(slug, se, ep);
+    if (existing && existing.position > 10) {
+      const toast = el('div', { class: 'resume-toast' }, `Resumed from ${formatTime(existing.position)}`);
+      video.addEventListener('loadedmetadata', () => {
+        if (existing.position < (video.duration - 15)) {
+          video.currentTime = existing.position;
+          toast.classList.add('show');
+          setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+      }, { once: true });
+      container.append(toast);
+    }
+
+    let lastSave = 0;
+    const persist = (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastSave < 5000) return;
+      lastSave = now;
+      saveHistoryEntry({
+        slug, name: showTitle || '', poster_url: posterUrl, se, ep,
+        position: video.currentTime || 0,
+        duration: video.duration || 0,
+      });
+    };
+
+    video.addEventListener('timeupdate', () => persist(false));
+    video.addEventListener('pause', () => persist(true));
+    video.addEventListener('ended', () => persist(true));
+
+    video.addEventListener('error', () => {
+      buildHeader(`Episode ${ep} — stream failed`);
+      container.append(el('div', { class: 'access-note', style: 'padding:16px' },
+        'Upstream returned an error for this source.'));
+    });
+
+    const keyHandler = (e) => {
+      if (!document.body.contains(overlay)) {
+        document.removeEventListener('keydown', keyHandler);
+        return;
+      }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      switch (e.key) {
+        case ' ':
+        case 'k': e.preventDefault(); video.paused ? video.play() : video.pause(); break;
+        case 'ArrowLeft': e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 5); break;
+        case 'ArrowRight': e.preventDefault(); video.currentTime = Math.min(video.duration || 0, video.currentTime + 5); break;
+        case 'ArrowUp': e.preventDefault(); video.volume = Math.min(1, video.volume + 0.1); break;
+        case 'ArrowDown': e.preventDefault(); video.volume = Math.max(0, video.volume - 0.1); break;
+        case 'f':
+          e.preventDefault();
+          if (video.requestFullscreen) {
+            document.fullscreenElement ? document.exitFullscreen() : video.requestFullscreen();
+          }
+          break;
+        case 'm': e.preventDefault(); video.muted = !video.muted; break;
+      }
+    };
+    document.addEventListener('keydown', keyHandler);
+
+    const origRemove = overlay.remove.bind(overlay);
+    overlay.remove = () => { persist(true); origRemove(); };
   } catch (e) {
     const container = overlay.querySelector('.player-container');
     container.innerHTML = '';
@@ -464,7 +966,7 @@ async function openPlayer(sid, slug, se, ep) {
   }
 }
 
-// Search typeahead
+// ─── SEARCH ─────────────────────────────────────────────────────────────────
 let searchTimer;
 $('#search').addEventListener('input', (e) => {
   clearTimeout(searchTimer);
@@ -491,18 +993,30 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.search-wrap')) $('#search-results').innerHTML = '';
 });
 
-// Router
+// ─── ROUTER ─────────────────────────────────────────────────────────────────
+function updateNav(path) {
+  document.querySelectorAll('#main-nav a').forEach(a => {
+    const navPath = a.getAttribute('data-nav');
+    const matches = path === navPath || (navPath !== '/' && path.startsWith(navPath));
+    a.classList.toggle('active', matches);
+  });
+}
+
 function route() {
   const hash = location.hash.slice(1) || '/';
   const [path, queryString] = hash.split('?');
   const params = new URLSearchParams(queryString || '');
   const parts = path.split('/').filter(Boolean);
 
+  updateNav(path.startsWith('/') ? path : '/' + path);
+
   if (parts.length === 0) { renderHome(); return; }
   switch (parts[0]) {
     case 'catalog': renderCatalog(params); break;
     case 'browse': parts[1] ? renderBrowse(decodeURIComponent(parts[1])) : renderHome(); break;
     case 'detail': parts[1] ? renderDetail(decodeURIComponent(parts[1])) : renderHome(); break;
+    case 'bookmarks': renderBookmarks(); break;
+    case 'history': renderHistory(); break;
     default: renderHome();
   }
 }

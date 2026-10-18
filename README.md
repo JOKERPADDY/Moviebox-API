@@ -4,26 +4,27 @@
 
 # MovieBox API Pro
 
-A pure REST API wrapper around [moviebox.ph](https://moviebox.ph).
+A pure REST API wrapper around [moviebox.ph](https://moviebox.ph) with an indexed catalog, provider failover, and a self-hosted frontend.
 
-No scraping. No HTML parsing. No headless browser. It talks the exact same private JSON API the moviebox web player talks — `h5-api.aoneroom.com/wefeed-h5api-bff` — and re-exposes it as a clean, self-hosted REST surface.
+No scraping. No HTML parsing. No headless browser. It talks the exact same private JSON API the moviebox web player talks — `h5-api.aoneroom.com/wefeed-h5api-bff` — and re-exposes it as a clean, self-hosted REST surface plus a browser UI.
 
 Built for people who want to wire moviebox into their own apps, scripts, bots, dashboards, or media servers without reverse-engineering the network tab every time the site ships an update.
 
-**Version 2.3.3** — full changelog at the bottom.
+**Version 2.7.0** — module split, provider failover, frontend polish.
 
 ---
 
 ## What it does
 
 - **Discovery** — banners, featured blocks, and every category row from the moviebox home feed
-- **Sections** — list and browse any home section directly
-- **Catalogs** — paginated movies, TV, animation (resolved from home sections)
+- **Indexed catalog** — SQLite-backed, 1700+ subjects across movies / TV / anime, self-refreshing on a 6h schedule
 - **Search** — full-text search + typeahead suggestions
-- **Metadata** — full detail tree for any subject (episodes, seasons, languages, artwork)
+- **Metadata** — full detail tree for any subject (episodes, seasons, languages, cast, artwork)
 - **Streams** — direct MP4 sources per resolution, plus HLS and DASH manifests
 - **Stream proxy** — Range-aware MP4 passthrough for media servers
 - **Subtitles** — full caption list per episode, SRT→VTT conversion inline
+- **Provider failover** — 7 known mirrors, circuit breaker per host, automatic fallover
+- **Web frontend** — hero carousel, catalog browser, player with resume / quality / subtitle pickers, bookmarks, watch history
 - **Diagnostics** — tab-ID probing, payload variant testing, raw upstream passthrough, health
 
 ## What it isn't
@@ -44,15 +45,18 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Server boots on `http://localhost:8000`. Open it in a browser and you get the dashboard, which lists every endpoint with a one-click test button.
+Server boots on `http://localhost:8000`. Two entry points:
 
-For dev with autoreload:
+- `http://localhost:8000/` — HTML API dashboard, one-click tests for every endpoint
+- `http://localhost:8000/app` — the actual frontend (hero carousel, catalog, player, bookmarks, history)
+
+Dev with autoreload:
 
 ```bash
 RELOAD=1 python main.py
 ```
 
-For a specific port:
+Custom port:
 
 ```bash
 PORT=9000 python main.py
@@ -64,37 +68,78 @@ Docker:
 docker compose up -d
 ```
 
+The first boot kicks off the catalog walk in the background. It takes 2–3 minutes to populate ~1700 rows and enrich the type fields. `/catalog/stats` shows progress.
+
 ---
 
 ## Endpoints
 
+### Discovery & home
+
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/` | HTML dashboard |
-| `GET` | `/health` | Service, cache, and tab state |
 | `GET` | `/home` | Featured sections and banners |
 | `GET` | `/home/all` | Flattened deduped feed |
 | `GET` | `/sections` | List every home section |
-| `GET` | `/browse/{section}` | Browse any home section directly |
-| `GET` | `/movies` | Movies catalog (home-fallback) |
-| `GET` | `/tv-series` | TV catalog (home-fallback) |
-| `GET` | `/animation` | Animation catalog (home-fallback) |
+| `GET` | `/browse/{section}` | Direct access to any home section |
+
+### Catalog (indexed)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/catalog` | Indexed catalog with sort/filter/search |
+| `GET` | `/catalog/stats` | Counts, walk progress, keyword telemetry |
+| `POST` | `/catalog/refresh` | Re-run the walk (`?mode=enrich` for enrichment only) |
+| `POST` | `/catalog/add` | Manually add a subject by slug |
+
+### Home-fallback catalogs
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/movies` | Movies from home sections |
+| `GET` | `/tv-series` | TV series from home sections |
+| `GET` | `/animation` | Animation from home sections |
+
+### Search & metadata
+
+| Method | Path | Purpose |
+|--------|------|---------|
 | `GET` | `/search` | Full-text search |
 | `GET` | `/search/suggest` | Typeahead (`?enrich=true` for slugs) |
 | `GET` | `/detail/{slug}` | Full metadata for a subject |
+
+### Stream & subtitles
+
+| Method | Path | Purpose |
+|--------|------|---------|
 | `GET` | `/api/stream/{subject_id}` | Direct video sources |
 | `GET` | `/api/stream/{subject_id}/proxy` | Range-aware MP4 passthrough |
 | `GET` | `/api/stream/{subject_id}/captions` | Subtitle list |
 | `GET` | `/api/stream/{subject_id}/subtitles/{lang}` | SRT → VTT inline |
-| `GET` | `/api/tabs` | Tab-ID discovery (diagnostic) |
-| `GET` | `/api/tabs/variants` | Payload variant testing (diagnostic) |
+
+### Providers
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/providers` | Live provider health with circuit breaker state |
+| `POST` | `/providers/probe` | Force-probe all providers now |
+| `POST` | `/providers/reset` | Clear all circuit breakers |
+| `GET` | `/api/hosts` | Backwards-compat host status |
+
+### Diagnostics
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/health` | Liveness, cache state, catalog counts |
+| `GET` | `/api/tabs` | Probe tab IDs (diagnostic) |
+| `GET` | `/api/tabs/variants` | Try every known filter payload shape |
 | `GET` | `/api/debug/upstream` | Raw upstream passthrough |
 
 ---
 
 ### `GET /home`
 
-Returns the operating list from the moviebox home feed, grouped into sections. Banner sections and `SUBJECTS_*` rows are both normalized into the same item shape.
+Returns the operating list from the moviebox home feed, grouped into sections. Banner sections and `SUBJECTS_*` rows are normalized into the same item shape.
 
 ```bash
 curl http://localhost:8000/home | jq
@@ -103,6 +148,7 @@ curl http://localhost:8000/home | jq
 ```json
 {
   "status": "success",
+  "host": "moviebox.ph",
   "sections": [
     {
       "section": "Banner",
@@ -110,312 +156,105 @@ curl http://localhost:8000/home | jq
       "items": [
         {
           "name": "VisionQuest",
-          "poster_url": "https://.../cover.jpg",
+          "poster_url": "https://.../cover.webp",
           "slug": "visionquest-hindi-0qVaGP1YHE4",
           "subject_id": "3908280950886646112",
           "badge": "Hindi"
         }
       ]
-    },
-    {
-      "section": "🔥Cinema",
-      "count": 14,
-      "items": [ ... ]
     }
   ]
 }
 ```
 
-The item shape is consistent across banner rows and subject rows, so you can flatten everything into a single feed without branching on section type.
+### `GET /catalog`
 
----
-
-### `GET /home/all`
-
-Flattened, deduped feed across every home section. Useful for a single scroll surface.
-
-```bash
-curl "http://localhost:8000/home/all" | jq
-curl "http://localhost:8000/home/all?dedupe=false" | jq   # keep duplicates
-```
-
-**Response:** `{ count, items[] }`
-
----
-
-### `GET /sections`
-
-List every section the home feed exposes — name, type, item count. Section names can be used with `/browse/{section}` or the catalog endpoints.
-
-```bash
-curl "http://localhost:8000/sections" | jq
-```
-
-```json
-{
-  "sections": [
-    { "section": "IN Banner", "type": "BANNER", "count": 12 },
-    { "section": "🔥Hot Short TV", "type": "SUBJECTS_MOVIE", "count": 8 },
-    { "section": "🔥Cinema", "type": "SUBJECTS_MOVIE", "count": 14 },
-    { "section": "Bollywood", "type": "SUBJECTS_MOVIE", "count": 6 },
-    { "section": "Top Anime", "type": "SUBJECTS_MOVIE", "count": 16 }
-  ]
-}
-```
-
-Section types you'll see:
-- `BANNER` — the hero carousel
-- `SUBJECTS_MOVIE` / `SUBJECTS_TV` / `SUBJECTS_ANIMATION` — content rows
-- `SPORT_LIVE` — live sports widgets (usually empty)
-- `FILTER` — category grid widget
-- `APPOINTMENT_LIST` — coming-soon rows
-
-Only the `SUBJECTS_*` and `BANNER` types carry usable content.
-
----
-
-### `GET /browse/{section}`
-
-Direct access to any home section by name (case-insensitive substring match).
-
-```bash
-curl "http://localhost:8000/browse/Cinema" | jq
-curl "http://localhost:8000/browse/Top%20Anime" | jq     # URL-encode spaces
-curl "http://localhost:8000/browse/Anime" | jq            # matches "Top Anime"
-```
-
-```json
-{
-  "section": "Cinema",
-  "matched_titles": ["🔥Cinema"],
-  "page": 1,
-  "per_page": 24,
-  "total": 14,
-  "items": [
-    {
-      "name": "The Vvaan: Force of the Forrest [Hindi][CAM]",
-      "poster_url": "https://pbcdn.aoneroom.com/image/.../7454ddb0.jpg",
-      "slug": "the-vvaan-force-of-the-forrest-hindi-cam-yvxjyvRyyJ5",
-      "subject_id": "4813212061729714704",
-      "badge": "Hindi",
-      "rating": "6.9"
-    }
-  ]
-}
-```
-
-`matched_titles` shows exactly which section names the query landed on. If none matched, returns 404 with a pointer to `/sections`.
-
-Pagination is client-side — the home feed only carries one page per section.
-
----
-
-### `GET /movies`, `GET /tv-series`, `GET /animation`
-
-Paginated catalogs. Each resolves by merging the matching home sections:
-
-| Endpoint | Sections |
-|----------|----------|
-| `/movies` | Cinema, Bollywood, Hollywood, South Indian |
-| `/tv-series` | Hot Short TV, Indian Drama, Western TV, Best Asian Series |
-| `/animation` | Top Anime |
+The real catalog. Reads from the SQLite index populated by the background walk.
 
 **Query parameters**
 
 | Param | Type | Default | Notes |
 |-------|------|---------|-------|
+| `type` | string | `all` | `all`, `movie`, `tv`, `anime` |
+| `sort` | string | `recent` | `recent`, `title`, `rating` |
 | `page` | int | `1` | 1-indexed |
-| `sort` | string | `RECOMMEND` | Only used by the filter endpoint (see below) |
-| `tab` | int | env `TAB_*` | Override tab id for the filter attempt |
-| `source` | string | `auto` | `auto`, `filter`, `home` |
+| `per_page` | int | `24` | Max 100 |
+| `q` | string | — | Filter title (substring, case-insensitive) |
+| `host` | string | — | Filter by source host (all share one catalog upstream) |
 
-**How `source` works:**
+```bash
+curl "http://localhost:8000/catalog?type=movie&sort=rating&per_page=5" | jq
+curl "http://localhost:8000/catalog?q=matrix" | jq
+```
 
-- `auto` (default) — try `/subject/filter` first; if it returns a sentinel (see below), fall back to home sections
-- `filter` — force the filter path (will return sentinel data on current upstream)
-- `home` — skip filter, use home sections directly
+Response includes `total`, `total_pages`, and `items[]` with `name`, `poster_url`, `slug`, `subject_id`, `rating`, `year`, `badge`, `subject_type`, `genre`, `types[]`.
 
-**Response**
+### `GET /catalog/stats`
+
+Everything about the index:
 
 ```json
 {
-  "page": 1,
-  "per_page": 24,
-  "total": 44,
-  "total_sentinel": false,
-  "source": "home_fallback",
-  "sections": ["Bollywood", "Hollywood", "South Indian", "🔥Cinema"],
-  "items": [ ... ]
+  "total": 1737,
+  "movies": 163,
+  "tv": 140,
+  "anime": 25,
+  "untyped": 1409,
+  "untyped_pending_enrichment": 1497,
+  "subject_types": { "1": 119, "2": 89, "6": 23 },
+  "by_host": { "moviebox.ph": 1737 },
+  "walk_state": { "running": false, "enriching": false },
+  "keyword_stats": {
+    "m": { "pages": 11, "items": 211, "hit_cap": false, "upstream_total": 211 }
+  }
 }
 ```
 
-`source` tells you where the data came from. `total_sentinel: true` means upstream returned the `1000000` "no-match" sentinel — usually because `/subject/filter` requires auth we don't have as a guest. When that happens, `auto` falls through to `home_fallback` and you get real content.
-
-**Note on `/subject/filter`:** the endpoint requires auth beyond the guest token for real filter responses. Every payload shape we tested returns sentinel. `/api/tabs/variants` documents this. Home fallback is the correct path.
-
----
-
-### `GET /search`
-
-**Query parameters**
-
-| Param | Type | Required | Notes |
-|-------|------|----------|-------|
-| `q` | string | yes | Min length 1 |
-| `page` | int | no | Default `1` |
+### `POST /catalog/refresh`
 
 ```bash
-curl "http://localhost:8000/search?q=matrix" | jq
+curl -X POST http://localhost:8000/catalog/refresh                          # full walk
+curl -X POST "http://localhost:8000/catalog/refresh?mode=enrich"            # enrichment only
+curl -X POST "http://localhost:8000/catalog/refresh?force=true"             # walk all hosts, no dedupe
 ```
 
-**Response:** `{ query, page, total, items[] }` — items have `name`, `poster_url`, `slug`, `subject_id`.
+Returns immediately; runs in background. Watch `/catalog/stats`.
 
----
+### `POST /catalog/add?slug=`
 
-### `GET /search/suggest`
-
-Upstream suggest is a **typeahead endpoint** — it doesn't join against the subject table. Response is `{title}` per item.
+Manually add a subject the walk missed. Useful for anything upstream's search ranking doesn't surface (`Matrix` was the case study).
 
 ```bash
-curl "http://localhost:8000/search/suggest?q=break" | jq
+curl -X POST "http://localhost:8000/catalog/add?slug=matrix-W1E5680Y2S5" | jq
 ```
 
-```json
-{
-  "query": "break",
-  "count": 10,
-  "suggestions": [{ "title": "Breaking Bad [Hindi]" }]
-}
-```
-
-For enriched results (with `slug` and `subject_id`), pass `?enrich=true`. This fans out one `/search` per suggestion — costs ~10 upstream calls per request.
-
-```bash
-curl "http://localhost:8000/search/suggest?q=break&enrich=true" | jq
-```
-
-```json
-{
-  "suggestions": [
-    { "title": "Breaking Bad [Hindi]", "slug": "breaking-bad-hindi-...", "subject_id": "..." }
-  ]
-}
-```
-
----
-
-### `GET /detail/{slug}`
-
-Raw passthrough of the upstream detail endpoint. The response is the full tree — subject info, seasons, episodes, available languages, artwork variants.
-
-```bash
-curl "http://localhost:8000/detail/breaking-bad-ej6Bp0MCAo7" | jq
-```
-
-Top-level keys you'll see: `subject`, `stars`, `resource`, `metadata`, `isForbid`, `watchTimeLimit`.
-
----
+Fetches the detail response, upserts, and enriches immediately.
 
 ### `GET /api/stream/{subject_id}`
-
-Resolves direct playable sources for a subject (or specific episode).
-
-**Path parameter**
-
-- `subject_id` — from any discovery/search endpoint
-
-**Query parameters**
-
-| Param | Type | Default | Notes |
-|-------|------|---------|-------|
-| `detail_path` | string | required | The `slug` |
-| `se` | int | `1` | Season number |
-| `ep` | int | `1` | Episode number |
 
 ```bash
 curl "http://localhost:8000/api/stream/6207982430134357800?detail_path=breaking-bad-ej6Bp0MCAo7&se=1&ep=1" | jq
 ```
 
-```json
-{
-  "subject_id": "6207982430134357800",
-  "se": 1,
-  "ep": 1,
-  "has_resource": true,
-  "sources": [
-    {
-      "resolution": "1080p",
-      "format": "MP4",
-      "url": "https://.../1080p.mp4",
-      "size": 1234567890,
-      "duration": 2880,
-      "codec": "h264"
-    }
-  ],
-  "hls": [],
-  "dash": [],
-  "free_episodes": 3,
-  "limited": false,
-  "note": null
-}
-```
-
----
+Returns `has_resource`, `sources[]` (resolution, format, codec, url, size, duration), `hls[]`, `dash[]`, `free_episodes`, `limited`.
 
 ### `GET /api/stream/{subject_id}/proxy`
 
-Range-aware MP4 passthrough. Drop into media servers that can't set custom headers (Jellyfin, Plex, Infuse, VLC).
-
-**Query parameters**
-
-- Same as `/api/stream` plus `res` — `best` (default), `1080p`, `720p`, `480p`, etc.
+Range-aware MP4 passthrough. Drop into media servers (Jellyfin, Plex, Infuse, VLC) that can't set custom headers.
 
 ```bash
-# Full file
+# full file
 curl -O "http://localhost:8000/api/stream/6207982430134357800/proxy?detail_path=breaking-bad-ej6Bp0MCAo7&res=1080p"
 
-# Ranged seek
+# ranged seek
 curl -H "Range: bytes=0-1048575" "http://localhost:8000/api/stream/.../proxy?..." -o chunk.bin
 ```
 
-Forwards `Range` upstream and returns `206` with proper `Content-Range` when the client requests a partial. Full-file requests return `200` and stream through a 64 KB chunked iterator.
-
-MP4 only. HLS/DASH proxy would need manifest URL rewriting — not implemented.
-
----
-
-### `GET /api/stream/{subject_id}/captions`
-
-Fetches the caption track list for the resolved stream.
-
-```bash
-curl "http://localhost:8000/api/stream/6207982430134357800/captions?detail_path=breaking-bad-ej6Bp0MCAo7&se=1&ep=1" | jq
-```
-
-```json
-{
-  "subject_id": "6207982430134357800",
-  "se": 1,
-  "ep": 1,
-  "count": 1,
-  "captions": [
-    {
-      "id": "7702756051481150960",
-      "lan": "en",
-      "lanName": "English",
-      "url": "https://cacdn.hakunaymatata.com/subtitle/.../abc.srt?Policy=...",
-      "size": "54233",
-      "delay": 0
-    }
-  ]
-}
-```
-
----
+Forwards `Range` upstream, returns `206` with `Content-Range` on partial. Full-file requests stream through a 64KB chunked iterator.
 
 ### `GET /api/stream/{subject_id}/subtitles/{lang}`
 
-Fetches the SRT for `lang`, converts to WebVTT inline, returns `text/vtt`. Drop-in for a `<track>` element.
+Fetches the SRT, strips index lines, converts timestamps, prepends `WEBVTT`. Drop-in for a `<track>` element.
 
 ```bash
 curl "http://localhost:8000/api/stream/6207982430134357800/subtitles/en?detail_path=breaking-bad-ej6Bp0MCAo7" | head -20
@@ -426,98 +265,137 @@ WEBVTT
 
 00:00:17.833 --> 00:00:18.916
 [Vision] <i>Who am I?</i>
-
-00:00:19.541 --> 00:00:21.708
-...
 ```
 
-The converter strips numeric SRT index lines, swaps `,` timestamp separators to `.`, prepends `WEBVTT`, and collapses whitespace. SRT formatting tags (`<i>`, `<b>`, `{\an8}` positions) survive.
+SRT formatting tags (`<i>`, `<b>`, `{\an8}`) survive the conversion.
 
----
+### `GET /providers`
 
-### `GET /api/tabs` and `GET /api/tabs/variants`
+Live provider state:
 
-Diagnostic endpoints for the `/subject/filter` endpoint.
-
-```bash
-# Probe tab IDs 1-20 for sample titles
-curl "http://localhost:8000/api/tabs?min_id=1&max_id=20" | jq
-
-# Try every known payload variant against a single tab
-curl "http://localhost:8000/api/tabs/variants?tab_id=2" | jq
+```json
+{
+  "default_host": "moviebox.ph",
+  "provider_count": 7,
+  "healthy": 7,
+  "degraded": 0,
+  "providers": [
+    {
+      "host": "moviebox.ph",
+      "alive": true,
+      "circuit_open": false,
+      "circuit_open_for": 0,
+      "consecutive_failures": 0,
+      "total_success": 25,
+      "total_failure": 0,
+      "avg_latency_ms": 374,
+      "last_success_ago": 0,
+      "last_failure_ago": null,
+      "last_error": null
+    }
+  ],
+  "circuit_breaker": { "threshold": 3, "window_seconds": 60 }
+}
 ```
-
-**Current state:** every variant returns `total: 1000000` (sentinel). `/subject/filter` requires auth we don't have as a guest. The home fallback catalogs are the correct path. These endpoints stay for future upstream changes — if the auth situation shifts, `/api/tabs/variants` will tell you immediately.
-
----
-
-### `GET /api/debug/upstream`
-
-Raw passthrough to the BFF. Inspect upstream response shapes.
-
-```bash
-# Raw suggest response
-curl -G "http://localhost:8000/api/debug/upstream" \
-  --data-urlencode "path=/subject/search-suggest" \
-  --data-urlencode "method=POST" \
-  --data-urlencode 'payload={"keyword":"break"}' | jq
-
-# Raw home response
-curl -G "http://localhost:8000/api/debug/upstream" \
-  --data-urlencode "path=/home?host=moviebox.ph" | jq
-```
-
----
 
 ### `GET /health`
-
-Liveness + cache diagnostics. Useful as a container healthcheck.
 
 ```json
 {
   "status": "ok",
-  "version": "2.3.3",
-  "token_cached": true,
-  "token_age_seconds": 142,
+  "version": "2.7.0",
+  "default_host": "moviebox.ph",
+  "providers": { "moviebox.ph": { "alive": true, "latency_ms": 374, "fails": 0, "circuit_open": false } },
+  "tokens_cached": 1,
   "domain_cached": "https://mzfi.me",
   "domain_expires_in": 287,
-  "client_pool_connections": 2,
-  "tabs": { "movies": 2, "tv": 5, "animation": 8 },
-  "catalog_sections": {
-    "movies": ["Cinema", "Bollywood", "Hollywood", "South Indian"],
-    "tv-series": ["Hot Short TV", "Indian Drama", "Western TV", "Best Asian Series"],
-    "animation": ["Top Anime"]
-  }
+  "catalog_indexed": 1737,
+  "walk_running": false,
+  "enriching": false
 }
 ```
 
 ---
 
+## Frontend at `/app`
+
+Single-file vanilla JS, no build step, no dependencies. Served by the same FastAPI process.
+
+**Views:**
+
+- **Home** — hero carousel across the top (auto-rotating, arrows, dots, Ken Burns zoom), then horizontal scroll rows for every section
+- **Catalog** — type tabs (All/Movies/TV/Anime), sort dropdown, text filter, pagination
+- **Bookmarks** — everything you've hearted, sorted by save time, "Clear all" button
+- **History** — every episode you've watched with progress bar and resume button
+- **Detail** — poster, description, metadata, cast, dubs, Play button or season/episode grid, bookmark toggle
+- **Player** — modal overlay with quality picker, subtitle picker, resume-from-history, keyboard shortcuts, episode picker on missing streams
+
+**Persistence** (localStorage, per-browser):
+
+- `mb_bookmarks` — saved titles
+- `mb_history` — watch progress per `(slug, se, ep)`
+
+**Player keyboard shortcuts:**
+
+| Key | Action |
+|-----|--------|
+| `Space` / `k` | Play / pause |
+| `←` / `→` | Seek ±5s |
+| `↑` / `↓` | Volume ±10% |
+| `f` | Fullscreen |
+| `m` | Mute |
+| `Esc` | Close player / exit fullscreen |
+
+---
+
 ## Architecture
 
-### Guest token
+### Module layout
 
-moviebox's BFF issues a guest JWT on the very first unauthenticated request. It arrives in an `x-user` response header, not the body. `_make_request` refreshes the cached token on every response that carries `x-user` — self-heals on each call. On cold start, `_get_bearer_token` serializes acquisition behind an `asyncio.Lock` so concurrent requests don't race.
+```
+config.py            env vars + headers + constants
+state.py             mutable globals (client, db, tokens, caches, walk_state)
+providers.py         provider health, circuit breaker, probe loop
+upstream.py          token cache, bff_request, player, stream resolution
+storage.py           sqlite schema, read, upsert
+helpers.py           normalize, srt_to_vtt, pick_mp4_stream
+catalog_worker.py    walk, enrichment, maintenance loop
+dashboard.py         DASHBOARD_HTML string
+routes.py            all API endpoints
+main.py              FastAPI app + lifespan + middleware + / and /app
+static/app.html      frontend
+```
+
+No circular imports. Import order: `config → state → providers → upstream → catalog_worker → routes → main`. `storage` and `helpers` are leaf modules.
+
+### Guest tokens per provider
+
+Each mirror issues its own guest JWT via the `x-user` response header. Tokens are cached per host. On 401, the token is cleared, re-acquired, and the request retried once on the same host.
 
 ### Player domain
 
-Stream URLs live on a different host than the BFF. The host is fetched from `/media-player/get-domain` and can rotate. Cached for 300s, re-fetched on expiry. The referer for stream requests is built to match what the browser would send to the play page.
+Stream URLs live on a different host than the BFF. Fetched from `/media-player/get-domain`, cached for 300s. On stream failure, the cache is invalidated and the domain re-discovered once before surfacing an error.
 
-### Retry policy
+### Provider failover
 
-`_make_request` retries 3 times with exponential backoff on transient 5xx, network errors, and honors `Retry-After` on 429. A single 401-retry fires after clearing the stale token and re-acquiring.
+Every BFF request tries the primary first, then falls over to the next healthy provider on network failure, 5xx, 429 (honoring Retry-After), or non-JSON. Per-host circuit breaker opens after 3 consecutive failures for 60s. A background probe loop cycles one host per `PROVIDER_PROBE_INTERVAL` seconds, keeping latency and health fresh.
 
-### Connection pool
+All 7 known mirrors share the same aoneroom backend — the failover is pure resilience, not multiple catalogs.
 
-One shared `httpx.AsyncClient` per process, 50 max connections / 20 keepalive, created in lifespan and closed on shutdown.
+### Catalog walk
 
-### Catalog source resolution
+Two-tier source for the index:
 
-`/movies`, `/tv-series`, `/animation` first try `/subject/filter`. If upstream returns the `1000000` sentinel, they fall back to merging the matching home sections. Every response carries a `source` field so you know which path was taken.
+1. **Home ingest** — every subject appearing in `/home` under a category section gets tagged with `is_movie` / `is_tv` / `is_anime` based on the section name
+2. **Keyword walk** — 36 keywords (a-z, 0-9), paginate until `hasMore: false` or `CATALOG_MAX_PAGES_PER_KEYWORD`, upsert every subject
+
+After walking, a background enricher hits `/detail/{slug}` for every subject whose type is unknown and reads `subjectType` (1=movie, 2=series, 6=music video) plus `genre` (contains "anime" → `is_anime`). This is what gets movies from 44 to 400+ and TV from 60 to 300+.
+
+The walk re-runs every 6 hours. Enrichment runs once after each walk. `POST /catalog/refresh` forces both manually.
 
 ### SRT → VTT
 
-`/subtitles/{lang}` fetches the SRT, strips numeric index lines, converts `,` timestamps to `.`, prepends `WEBVTT`. Italics and other SRT tags survive.
+`/subtitles/{lang}` fetches the SRT, strips numeric index lines, converts `,` timestamp separators to `.`, prepends `WEBVTT`, collapses whitespace. Italics and other SRT tags survive.
 
 ---
 
@@ -525,9 +403,20 @@ One shared `httpx.AsyncClient` per process, 50 max connections / 20 keepalive, c
 
 ```
 .
-├── main.py            # the whole app — routes, helpers, HTML dashboard
-├── requirements.txt   # fastapi, uvicorn, httpx
-├── verify.py          # live integration test — chains real requests
+├── main.py
+├── config.py
+├── state.py
+├── providers.py
+├── upstream.py
+├── storage.py
+├── helpers.py
+├── catalog_worker.py
+├── dashboard.py
+├── routes.py
+├── static/
+│   └── app.html
+├── requirements.txt
+├── verify.py
 ├── Dockerfile
 ├── docker-compose.yml
 ├── README.md
@@ -536,41 +425,44 @@ One shared `httpx.AsyncClient` per process, 50 max connections / 20 keepalive, c
 └── .gitignore
 ```
 
-No package structure, no ORM, no config layer. One file for the app because the app is one file's worth of logic.
-
 ---
 
 ## Verification
 
-`verify.py` runs a live integration pass. It chains requests — pulls a real slug and subject_id from `/home`, feeds them into `/detail`, `/api/stream`, `/api/stream/.../captions`, `/proxy`, and `/subtitles`. Every route prints `PASS` or `FAIL` with a sample.
+`verify.py` runs a live integration pass against a running server. 27 checks, chains real requests — pulls a slug from `/home`, feeds `/detail`, `/api/stream`, `/captions`, `/proxy`, `/subtitles`. Also exercises `/providers`, `/api/hosts`, catalog sorts and filters.
 
 ```bash
-# Server must be running
+# server must be running
 python verify.py
 
-# Or against a remote host
+# or against a remote host
 python verify.py https://your-host
 ```
 
-17 blocks, exits non-zero on any failure. Drops straight into CI or a pre-commit hook.
+Exits non-zero on any failure. Drops straight into CI or a pre-commit hook.
 
 ---
 
 ## Environment
+
+See `.env.example` for the full list with defaults. Key variables:
 
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `PORT` | `8000` | Listen port |
 | `RELOAD` | `0` | `1` enables autoreload (dev) |
 | `REQUEST_TIMEOUT` | `25` | Upstream timeout, seconds |
-| `RETRY_ATTEMPTS` | `3` | Total tries per upstream call |
-| `RETRY_BACKOFF` | `0.5` | Base backoff for exponential retry |
-| `DOMAIN_TTL` | `300` | Player-domain cache TTL |
-| `TAB_MOVIES` | `2` | Movies tab id (filter endpoint, unused when sentinel) |
-| `TAB_TV` | `5` | TV tab id |
-| `TAB_ANIMATION` | `8` | Animation tab id |
+| `CATALOG_DB` | `catalog.db` | SQLite path |
+| `CATALOG_REFRESH_INTERVAL` | `21600` | Walk re-run interval (6h) |
+| `CATALOG_MAX_PAGES_PER_KEYWORD` | `50` | Bump to 200 for deeper keyword coverage |
+| `ENRICH_RATE_LIMIT` | `0.2` | Seconds between `/detail` calls during enrichment |
+| `MOVIEBOX_HOST` | `moviebox.ph` | Primary provider |
+| `MOVIEBOX_HOSTS` | 7 mirrors | Comma-separated |
+| `PROVIDER_PROBE_INTERVAL` | `60` | Seconds between probe ticks |
+| `CIRCUIT_BREAKER_THRESHOLD` | `3` | Failures before host opens |
+| `CIRCUIT_BREAKER_SECONDS` | `60` | How long host stays open |
 
-No config file. No `.env` required — the `.env.example` is a convenience.
+No config file. `set -a && source .env && set +a && python main.py` or `docker compose up`.
 
 ---
 
@@ -578,83 +470,58 @@ No config file. No `.env` required — the `.env.example` is a convenience.
 
 - **Behind a reverse proxy** — forward the full path. Routes assume `/` as root.
 - **Healthcheck** — point your orchestrator at `/health`.
-- **Long-running** — the token is process-global. Multiple workers each acquire their own token on first request.
-- **Rate limits** — upstream is unauthenticated for guests. Heavy polling of `/home` or catalogs will get you throttled. Cache your own reads if you're calling on a schedule.
+- **Long-running** — tokens are per-process, per-host. Multiple workers each acquire their own.
+- **Rate limits** — upstream is unauthenticated for guests. Heavy polling will get throttled.
+- **Persist `catalog.db`** — mount it as a volume or the walk restarts on every container rebuild.
 - **ToS** — you're calling a third party's private API. Behave accordingly.
 
 ---
 
 ## Troubleshooting
 
-### Catalog returns junk / music videos
+### `/home` returns 500
 
-The filter endpoint fell through to sentinel and the home fallback didn't match. Check `/sections` — the section names might have shifted. Update `CATALOG_SECTIONS` in `main.py` if so.
+Check `/health` and `/providers`. If a helper module is broken, verify.py step 1 fails on the same route. If all providers are up but `/home` fails, the issue is local — check server logs.
 
-### `total_sentinel: true` on a catalog response
+### Catalog shows `total: 0`
 
-`/subject/filter` needs auth we don't have as a guest. The `auto` source mode falls through to home fallback; if you see `source: "filter_sentinel_no_fallback"`, no home section matched the keywords for that catalog. Either fix the keywords in `CATALOG_SECTIONS` or use `/browse/{section}` directly.
+The walk either hasn't run yet or crashed. `POST /catalog/refresh` and watch `/catalog/stats` — `walk_state.running` should flip to `true` within a second.
+
+### `?type=movie` returns fewer results than expected
+
+Enrichment hasn't finished. Only home-ingested subjects have type tags until enrichment runs. Watch `untyped_pending_enrichment` in `/catalog/stats` — when it hits 0, everything has a type.
 
 ### Stream proxy returns 502
 
-Upstream CDN might be blocking the referer. Check `/api/stream/{sid}` first — if that returns sources, the URLs are live and the proxy should work. If sources are empty, the episode may be gated.
+Upstream CDN might be blocking the referer. Check `/api/stream/{sid}` first — if sources are present, the URLs are live and the proxy should work. If empty, the episode may be gated or mid-upload.
 
-### `/browse/Top Anime` returns 404
+### Search misses a known title
 
-URL-encode the space: `/browse/Top%20Anime`. Or use a substring: `/browse/Anime`.
+Upstream `/subject/search` is relevance-ranked, not exhaustive. `Matrix` isn't in the top 200 for `m`, so no walk keyword catches it. Fix: `POST /catalog/add?slug=<known-slug>` — the detail endpoint always works.
 
-### Why does suggest return no slug?
+### Frontend `/app` 404
 
-Suggest is a typeahead endpoint — designed to return strings fast. It doesn't join against the subject table. Slug/sid live only in `/search` and `/detail`. Pass `?enrich=true` for merged results.
-
----
-
-## Upgraded in v2.3.0
-
-- Shared `httpx.AsyncClient` (connection pooling) via lifespan
-- Async-locked token init — no cold-start race
-- Retry with exponential backoff; single 401-retry after clearing stale token
-- `/home/all` — flattened deduped feed
-- `/api/stream/{sid}/proxy` — Range-aware MP4 proxy
-- `/api/stream/{sid}/subtitles/{lang}` — SRT → WebVTT on the fly
-- `/health` reports version, token age, client pool stats
-- Dockerfile, docker-compose, .env.example, .gitignore
-
-## Fixed in v2.3.1
-
-- `/search/suggest` — honest about text-only upstream; `?enrich=true` opt-in for slug/sid fanout
-- Catalogs — `total_sentinel` flag surfaces the `1000000` "no-match" sentinel; `?tab=` override; `TAB_*` env vars
-- `/api/tabs` — tab-ID discovery endpoint
-- `/api/debug/upstream` — raw passthrough for shape inspection
-
-## Fixed in v2.3.2
-
-- Catalogs fall back to home sections when filter returns sentinel (`source` field on every response)
-- `/sections` — list every home section
-- `/browse/{section}` — direct access to any home section
-- `/api/tabs/variants` — try every known payload shape against a single tab
-- `CATALOG_SECTIONS` mapping centralized in `main.py`
-
-## Fixed in v2.3.3
-
-- Re-added `/` dashboard route (dropped in v2.3.2 restructure)
-- `/api/tabs/variants` confirmed: `/subject/filter` requires auth we don't have as guest; home fallback is the correct path
-- `verify.py` restored `poster=YES/NULL` in sample output
-- Full 17/17 PASS on live verification
+`static/app.html` missing. Confirm the file exists in the repo. `Dockerfile` copies `static/` explicitly.
 
 ---
 
-## Extensions
+## Changelog
 
-Not implemented, but the shape of the code makes them easy:
+**v2.7.0** — module split (10 files), provider failover with per-host circuit breakers, multi-host detection, `/providers` + `/providers/probe` + `/providers/reset` endpoints.
 
-- **HLS/DASH proxy** — needs manifest URL rewriting, more involved than the MP4 proxy
-- **Persistent cache** — Redis or SQLite on the home feed so you're not hitting the BFF every request
-- **Client SDK** — thin Python/JS wrapper for `pip install` / `npm install`
-- **Front-end** — actual UI hitting your own API
-- **Auth layer** — gate your own API with a key if you're deploying publicly
-- **Search across catalogs** — client-side merge of `/search` with home-fallback data
+**v2.6.0** — multi-host probe, `?host=` on every BFF endpoint, `source_host` column in catalog.
 
-PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**v2.4.1** — type enrichment from `/detail`, `keyword_stats` telemetry, `POST /catalog/add`, `?mode=enrich` refresh.
+
+**v2.4.0** — indexed catalog (`/catalog`, `/catalog/stats`, `/catalog/refresh`), SQLite storage, background walk + enrichment.
+
+**v2.3.3** — re-added `/` dashboard route; `/api/tabs/variants` confirms `/subject/filter` requires auth as guest.
+
+**v2.3.2** — catalog home-fallback (when filter returns sentinel), `/sections`, `/browse/{section}`.
+
+**v2.3.1** — `/search/suggest` honesty (text-only upstream), `total_sentinel` flag, `?tab=` override, `/api/tabs`.
+
+**v2.3.0** — shared `httpx.AsyncClient`, async-locked token init, retry with backoff, `/home/all`, `/api/stream/{sid}/proxy`, `/api/stream/{sid}/subtitles/{lang}`, Docker setup.
 
 ---
 

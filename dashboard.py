@@ -57,7 +57,7 @@ footer{text-align:center;padding:80px 0 40px;animation:fadeIn 2s ease}
 <div class="card"><div class="card-title"><i>📄</i> VTT</div><p class="card-desc">SRT → WebVTT inline.</p><div class="endpoint">/api/stream/{sid}/subtitles/{lang}</div><a href="/api/stream/6207982430134357800/subtitles/en?detail_path=breaking-bad-ej6Bp0MCAo7" target="_blank" class="btn">Get</a></div>
 <div class="card"><div class="card-title"><i>❤️</i> Health</div><p class="card-desc">Liveness + per-provider state.</p><div class="endpoint">/health</div><a href="/health" target="_blank" class="btn">Check</a></div>
 </div>
-<footer><div class="dev-tag">Developer: Walter</div></footer>
+<footer><div class="dev-tag">Developer: Faisal</div></footer>
 </div>
 </body>
 </html>"""
