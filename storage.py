@@ -1,3 +1,4 @@
+import re
 import time
 import sqlite3
 import hashlib
@@ -6,6 +7,9 @@ from config import (
     CATALOG_DB, DEFAULT_HOST,
 )
 import state
+
+
+_FTS_TERM_RE = re.compile(r"\w+", re.UNICODE)
 
 
 def init_schema():
@@ -55,6 +59,45 @@ def init_schema():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_anime ON subjects(is_anime)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_stype ON subjects(subject_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_host ON subjects(source_host)")
+
+    # ─── FTS5 for title search ─────────────────────────────────────────────
+    # External-content FTS5 table — indexes titles, mirrors subjects via
+    # triggers. Migrating pre-existing data happens automatically via the
+    # count comparison + rebuild below.
+    try:
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS subjects_fts USING fts5(
+                title,
+                content='subjects',
+                content_rowid='rowid',
+                tokenize='unicode61 remove_diacritics 2'
+            )
+        """)
+        # Triggers keep FTS in sync with subjects
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS subjects_fts_ai AFTER INSERT ON subjects BEGIN
+                INSERT INTO subjects_fts(rowid, title) VALUES (new.rowid, new.title);
+            END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS subjects_fts_ad AFTER DELETE ON subjects BEGIN
+                INSERT INTO subjects_fts(subjects_fts, rowid, title) VALUES('delete', old.rowid, old.title);
+            END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS subjects_fts_au AFTER UPDATE ON subjects BEGIN
+                INSERT INTO subjects_fts(subjects_fts, rowid, title) VALUES('delete', old.rowid, old.title);
+                INSERT INTO subjects_fts(rowid, title) VALUES (new.rowid, new.title);
+            END
+        """)
+        # Backfill on first run, and rebuild if out of sync
+        subj_count = conn.execute("SELECT COUNT(*) FROM subjects").fetchone()[0]
+        fts_count = conn.execute("SELECT COUNT(*) FROM subjects_fts").fetchone()[0]
+        if subj_count != fts_count:
+            conn.execute("INSERT INTO subjects_fts(subjects_fts) VALUES('rebuild')")
+    except Exception as e:
+        print(f"FTS5 setup failed (search will fall back to LIKE): {e}")
+
     conn.commit()
 
 
@@ -77,10 +120,6 @@ def read_scalar(sql: str, params: tuple = ()):
 
 
 def classify_section(title: str) -> tuple[int, int, int]:
-    """Best-effort section → type mapping using substring keywords.
-    Works across geo-shifted home feeds — 'Popular Movie' (Singapore) and
-    'Cinema' (Mumbai) both → is_movie=1. Genre-named sections that don't
-    match any keyword fall through to enrichment via /detail."""
     clean = title.lower().replace("🔥", "").replace("🆓", "").strip()
     is_movie = 1 if any(kw in clean for kw in (
         "movie", "cinema", "nollywood", "bollywood", "hollywood",
@@ -92,6 +131,28 @@ def classify_section(title: str) -> tuple[int, int, int]:
         "anime", "animation",
     )) else 0
     return (is_movie, is_tv, is_anime)
+
+
+def fts_search(q: str) -> list[str] | None:
+    """Search titles via FTS5. Returns matching subject_ids, or None if
+    FTS is unavailable or the query has no usable tokens (caller falls
+    back to LIKE). Adjacent quoted terms are ANDed by FTS5, prefix wildcard
+    applied so 'matri' matches 'matrix'."""
+    terms = [t for t in _FTS_TERM_RE.findall(q.lower()) if len(t) >= 2]
+    if not terms:
+        return None
+    fts_q = " ".join(f'"{t}"*' for t in terms)
+    try:
+        rows = read(
+            "SELECT s.subject_id FROM subjects_fts fts "
+            "JOIN subjects s ON s.rowid = fts.rowid "
+            "WHERE subjects_fts MATCH ? ORDER BY rank LIMIT 5000",
+            (fts_q,),
+        )
+        return [r[0] for r in rows]
+    except Exception as e:
+        print(f"FTS search failed: {e}")
+        return None
 
 
 def upsert_subject(sub: dict, section: str | None = None, source_host: str = DEFAULT_HOST) -> bool:

@@ -88,9 +88,9 @@ main{padding:32px;max-width:1400px;margin:0 auto}
 .desc{color:#9ea3ac;line-height:1.6;margin-bottom:20px;max-width:700px}
 .meta{display:flex;gap:16px;margin-bottom:24px;color:#667;flex-wrap:wrap}
 .meta span{padding:4px 10px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:0.85rem}
-.play-btn{padding:14px 32px;background:#ff3d71;color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;transition:all 0.2s}
+.play-btn{padding:14px 32px;background:#ff3d71;color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;transition:all 0.2s;font-family:inherit}
 .play-btn:hover{background:#ff1a4f;transform:translateY(-2px)}
-.icon-btn{padding:14px 20px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;color:#fff;font-size:1rem;cursor:pointer;transition:all 0.2s;font-weight:600}
+.icon-btn{padding:14px 20px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;color:#fff;font-size:1rem;cursor:pointer;transition:all 0.2s;font-weight:600;font-family:inherit}
 .icon-btn:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2)}
 .icon-btn.saved{background:rgba(255,61,113,0.15);border-color:#ff3d71;color:#ff3d71}
 .seasons{display:flex;flex-direction:column;gap:24px;margin-top:8px}
@@ -269,6 +269,20 @@ function isWatched(slug, se, ep) {
   return !!entry && entry.position > 5;
 }
 
+function recentHistoryForContinue(dedupeBySlug = true, minProgress = 30, limit = 8) {
+  const all = getHistory().filter(h => (h.position || 0) >= minProgress);
+  if (!dedupeBySlug) return all.slice(0, limit);
+  const seen = new Set();
+  const out = [];
+  for (const h of all) {
+    if (seen.has(h.slug)) continue;
+    seen.add(h.slug);
+    out.push(h);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 // ─── HERO CAROUSEL ──────────────────────────────────────────────────────────
 function renderBannerCarousel(items) {
   const heroEl = el('div', { class: 'hero' });
@@ -386,6 +400,25 @@ function renderCard(item, opts = {}) {
   return card;
 }
 
+function renderHistoryCard(entry) {
+  const card = renderCard(
+    { name: entry.name, slug: entry.slug, poster_url: entry.poster_url },
+    {
+      progress: { position: entry.position, duration: entry.duration },
+      resumeLabel: entry.position > 0 ? `▶ Resume ${formatTime(entry.position)}` : '▶ Play',
+      resumeOnClick: () => openPlayerBySlug(entry.slug, entry.se, entry.ep),
+    }
+  );
+  card.classList.add('history-card');
+  card.append(el('div', { class: 'history-meta' },
+    el('span', { class: 'badge-inline' }, `S${entry.se} E${entry.ep}`),
+    el('span', {}, entry.duration > 0
+      ? `${formatTime(entry.position)} / ${formatTime(entry.duration)}`
+      : formatTime(entry.position))
+  ));
+  return card;
+}
+
 // ─── HOME ───────────────────────────────────────────────────────────────────
 async function renderHome() {
   const app = $('#app');
@@ -393,6 +426,18 @@ async function renderHome() {
   try {
     const data = await api('/home');
     app.innerHTML = '';
+
+    // Continue watching row (above hero)
+    const cont = recentHistoryForContinue(true, 30, 8);
+    if (cont.length > 0) {
+      app.append(el('section', { class: 'section' },
+        el('div', { class: 'section-header' },
+          el('h2', { onclick: () => { location.hash = '#/history'; } }, 'Continue Watching'),
+          el('span', { class: 'count' }, `${cont.length} in progress`)
+        ),
+        el('div', { class: 'row' }, ...cont.map(renderHistoryCard))
+      ));
+    }
 
     let bannerItems = null;
     for (const section of data.sections) {
@@ -412,7 +457,16 @@ async function renderHome() {
     }
 
     if (bannerItems && bannerItems.length > 0) {
-      app.prepend(renderBannerCarousel(bannerItems));
+      // insert hero above all other sections
+      const hero = renderBannerCarousel(bannerItems);
+      const contEl = app.firstChild && app.firstChild.querySelector
+        ? app.firstChild
+        : null;
+      if (contEl && contEl.querySelector && contEl.querySelector('.history-meta')) {
+        app.insertBefore(hero, contEl.nextSibling);
+      } else {
+        app.prepend(hero);
+      }
     }
   } catch (e) {
     app.innerHTML = `<div class="error">${escape(e.message)}</div>`;
@@ -454,7 +508,7 @@ async function renderCatalog(params) {
 
     const catalogSearch = el('input', {
       class: 'catalog-search',
-      placeholder: 'Filter by title (Enter)...',
+      placeholder: 'Search titles (Enter)...',
       value: q,
       onkeydown: (e) => {
         if (e.key === 'Enter') {
@@ -576,22 +630,7 @@ function renderHistory() {
   }
 
   const grid = el('div', { class: 'grid' });
-  for (const item of items) {
-    const card = renderCard(
-      { name: item.name, slug: item.slug, poster_url: item.poster_url },
-      {
-        progress: { position: item.position, duration: item.duration },
-        resumeLabel: item.position > 0 ? `▶ Resume at ${formatTime(item.position)}` : '▶ Play',
-        resumeOnClick: () => openPlayerBySlug(item.slug, item.se, item.ep),
-      }
-    );
-    card.classList.add('history-card');
-    card.append(el('div', { class: 'history-meta' },
-      el('span', { class: 'badge-inline' }, `S${item.se} E${item.ep}`),
-      el('span', {}, item.duration > 0 ? `${formatTime(item.position)} / ${formatTime(item.duration)}` : formatTime(item.position))
-    ));
-    grid.append(card);
-  }
+  for (const item of items) grid.append(renderHistoryCard(item));
   app.append(grid);
 }
 
@@ -650,6 +689,7 @@ async function renderDetail(slug) {
     if (subject.imdbRatingValue) metaItems.push(`★ ${subject.imdbRatingValue}`);
     if (subject.genre) metaItems.push(subject.genre);
 
+    // ─── play area ─────────────────────────────────────────────────────────
     const playArea = el('div', {});
     const seasons = extractSeasons(resource);
     const access = root.accessStrategy || {};
@@ -698,24 +738,33 @@ async function renderDetail(slug) {
       }, '▶ Play'));
     }
 
+    // ─── actions row (bookmark + trailer) ──────────────────────────────────
     const saved = isBookmarked(slug);
-    const actions = el('div', { class: 'detail-actions' },
-      el('button', {
-        class: `icon-btn${saved ? ' saved' : ''}`,
-        onclick: (e) => {
-          toggleBookmark({
-            slug, name: subject.title || '', poster_url: posterUrl,
-            rating: subject.imdbRatingValue, year: (subject.releaseDate || '').slice(0, 4),
-            badge: subject.corner,
-          });
-          const btn = e.currentTarget;
-          const nowSaved = isBookmarked(slug);
-          btn.classList.toggle('saved', nowSaved);
-          btn.textContent = nowSaved ? '♥ Saved' : '♡ Bookmark';
-        },
-      }, saved ? '♥ Saved' : '♡ Bookmark')
-    );
+    const bookmarkBtn = el('button', {
+      class: `icon-btn${saved ? ' saved' : ''}`,
+      onclick: (e) => {
+        toggleBookmark({
+          slug, name: subject.title || '', poster_url: posterUrl,
+          rating: subject.imdbRatingValue, year: (subject.releaseDate || '').slice(0, 4),
+          badge: subject.corner,
+        });
+        const btn = e.currentTarget;
+        const nowSaved = isBookmarked(slug);
+        btn.classList.toggle('saved', nowSaved);
+        btn.textContent = nowSaved ? '♥ Saved' : '♡ Bookmark';
+      },
+    }, saved ? '♥ Saved' : '♡ Bookmark');
 
+    const trailer = (subject.trailer || {}).videoAddress || {};
+    const trailerUrl = trailer.url;
+    const trailerBtn = trailerUrl ? el('button', {
+      class: 'icon-btn',
+      onclick: () => openTrailerPlayer(trailerUrl, subject.title || ''),
+    }, '▶ Trailer') : null;
+
+    const actions = el('div', { class: 'detail-actions' }, bookmarkBtn, trailerBtn);
+
+    // ─── metadata blocks ───────────────────────────────────────────────────
     const stars = root.stars || [];
     const castBlock = stars.length ? el('div', { class: 'cast' },
       el('div', { class: 'cast-label' }, 'Cast'),
@@ -765,6 +814,34 @@ async function openPlayerBySlug(slug, se, ep) {
   } catch (e) {
     alert(`Could not load: ${e.message}`);
   }
+}
+
+// ─── TRAILER PLAYER (simple, no history, no subtitle picker) ────────────────
+function openTrailerPlayer(url, title) {
+  document.querySelectorAll('.player-overlay').forEach(n => n.remove());
+
+  const overlay = el('div', { class: 'player-overlay' },
+    el('div', { class: 'player-container' },
+      el('button', { class: 'close-btn', onclick: () => overlay.remove() }, '✕'),
+      el('video', {
+        class: 'player-video',
+        controls: 'controls',
+        autoplay: 'autoplay',
+        playsinline: '',
+      }, el('source', { src: url, type: 'video/mp4' })),
+      el('div', { class: 'player-bar' },
+        el('div', { class: 'player-info' }, el('strong', {}, 'Trailer'), title ? ` · ${title}` : '')
+      )
+    )
+  );
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape' && !document.fullscreenElement) {
+      overlay.remove();
+      document.removeEventListener('keydown', esc);
+    }
+  });
+  document.body.append(overlay);
 }
 
 // ─── PLAYER ─────────────────────────────────────────────────────────────────
