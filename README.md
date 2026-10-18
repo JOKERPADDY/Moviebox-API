@@ -4,13 +4,13 @@
 
 # MovieBox API Pro
 
-A pure REST API wrapper around [moviebox.ph](https://moviebox.ph) with an indexed catalog, provider failover, and a self-hosted frontend.
+A pure REST API wrapper around [moviebox.ph](https://moviebox.ph) with an indexed catalog, provider failover, FTS5 search, and a self-hosted frontend.
 
 No scraping. No HTML parsing. No headless browser. It talks the exact same private JSON API the moviebox web player talks — `h5-api.aoneroom.com/wefeed-h5api-bff` — and re-exposes it as a clean, self-hosted REST surface plus a browser UI.
 
 Built for people who want to wire moviebox into their own apps, scripts, bots, dashboards, or media servers without reverse-engineering the network tab every time the site ships an update.
 
-**Version 2.7.0** — module split, provider failover, frontend polish.
+**Version 2.7.0** — module split, provider failover, FTS5 search, trailer playback, continue-watching row.
 
 ---
 
@@ -18,14 +18,15 @@ Built for people who want to wire moviebox into their own apps, scripts, bots, d
 
 - **Discovery** — banners, featured blocks, and every category row from the moviebox home feed
 - **Indexed catalog** — SQLite-backed, 1700+ subjects across movies / TV / anime, self-refreshing on a 6h schedule
-- **Search** — full-text search + typeahead suggestions
-- **Metadata** — full detail tree for any subject (episodes, seasons, languages, cast, artwork)
+- **Full-text search** — FTS5-powered title search with prefix matching and rank ordering
+- **Search** — full-text search + typeahead suggestions against upstream
+- **Metadata** — full detail tree for any subject (episodes, seasons, languages, cast, trailer, artwork)
 - **Streams** — direct MP4 sources per resolution, plus HLS and DASH manifests
 - **Stream proxy** — Range-aware MP4 passthrough for media servers
 - **Subtitles** — full caption list per episode, SRT→VTT conversion inline
 - **Provider failover** — 7 known mirrors, circuit breaker per host, automatic fallover
-- **Web frontend** — hero carousel, catalog browser, player with resume / quality / subtitle pickers, bookmarks, watch history
-- **Diagnostics** — tab-ID probing, payload variant testing, raw upstream passthrough, health
+- **Web frontend** — hero carousel, catalog browser, player with resume / quality / subtitle pickers, trailer playback, continue-watching, bookmarks, watch history
+- **Diagnostics** — tab-ID probing, payload variant testing, raw upstream passthrough, health, SQLite integrity check on boot
 
 ## What it isn't
 
@@ -70,6 +71,8 @@ docker compose up -d
 
 The first boot kicks off the catalog walk in the background. It takes 2–3 minutes to populate ~1700 rows and enrich the type fields. `/catalog/stats` shows progress.
 
+**Single instance only.** SQLite is not multi-writer safe across processes. Two `python main.py` against one `catalog.db` corrupts it. If you're testing, `Ctrl+C` the running server before starting a new one.
+
 ---
 
 ## Endpoints
@@ -104,7 +107,7 @@ The first boot kicks off the catalog walk in the background. It takes 2–3 minu
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/search` | Full-text search |
+| `GET` | `/search` | Full-text search against upstream |
 | `GET` | `/search/suggest` | Typeahead (`?enrich=true` for slugs) |
 | `GET` | `/detail/{slug}` | Full metadata for a subject |
 
@@ -179,15 +182,23 @@ The real catalog. Reads from the SQLite index populated by the background walk.
 | `sort` | string | `recent` | `recent`, `title`, `rating` |
 | `page` | int | `1` | 1-indexed |
 | `per_page` | int | `24` | Max 100 |
-| `q` | string | — | Filter title (substring, case-insensitive) |
-| `host` | string | — | Filter by source host (all share one catalog upstream) |
+| `q` | string | — | FTS5 title search (with LIKE fallback) |
+| `host` | string | — | Filter by source host |
 
 ```bash
 curl "http://localhost:8000/catalog?type=movie&sort=rating&per_page=5" | jq
-curl "http://localhost:8000/catalog?q=matrix" | jq
+curl "http://localhost:8000/catalog?q=dragon" | jq
+curl "http://localhost:8000/catalog?q=love%20you" | jq   # multi-word AND
 ```
 
 Response includes `total`, `total_pages`, and `items[]` with `name`, `poster_url`, `slug`, `subject_id`, `rating`, `year`, `badge`, `subject_type`, `genre`, `types[]`.
+
+**FTS5 search behavior:**
+- Multi-word queries AND'd (`love you` finds titles with both)
+- Prefix matching (`matri` matches `matrix`)
+- Rank-ordered (best match first)
+- 1-char queries fall back to LIKE (SQLite FTS5 needs ≥2 chars to be useful)
+- If FTS setup ever fails at import time, `q=` silently degrades to `LIKE %query%` — same results, slower
 
 ### `GET /catalog/stats`
 
@@ -222,7 +233,7 @@ Returns immediately; runs in background. Watch `/catalog/stats`.
 
 ### `POST /catalog/add?slug=`
 
-Manually add a subject the walk missed. Useful for anything upstream's search ranking doesn't surface (`Matrix` was the case study).
+Manually add a subject the walk missed. Useful for anything upstream's search ranking doesn't surface (`Matrix` was the case study — search for `m` returns 211 results but Matrix isn't among them).
 
 ```bash
 curl -X POST "http://localhost:8000/catalog/add?slug=matrix-W1E5680Y2S5" | jq
@@ -323,17 +334,19 @@ Single-file vanilla JS, no build step, no dependencies. Served by the same FastA
 
 **Views:**
 
-- **Home** — hero carousel across the top (auto-rotating, arrows, dots, Ken Burns zoom), then horizontal scroll rows for every section
-- **Catalog** — type tabs (All/Movies/TV/Anime), sort dropdown, text filter, pagination
+- **Home** — hero carousel (auto-rotating, arrows, dots, Ken Burns zoom on the backdrop), continue-watching row above it (deduped by show, position ≥ 30s, top 8), then horizontal scroll rows for every home section
+- **Catalog** — type tabs (All/Movies/TV/Anime), sort dropdown, FTS title filter, pagination
 - **Bookmarks** — everything you've hearted, sorted by save time, "Clear all" button
 - **History** — every episode you've watched with progress bar and resume button
-- **Detail** — poster, description, metadata, cast, dubs, Play button or season/episode grid, bookmark toggle
+- **Detail** — poster, description, metadata, cast, dubs, Play button or season/episode grid, bookmark toggle, trailer button (when available), watched-episode dots
 - **Player** — modal overlay with quality picker, subtitle picker, resume-from-history, keyboard shortcuts, episode picker on missing streams
 
 **Persistence** (localStorage, per-browser):
 
 - `mb_bookmarks` — saved titles
-- `mb_history` — watch progress per `(slug, se, ep)`
+- `mb_history` — watch progress per `(slug, se, ep)`, capped at 200 entries
+
+**Trailer playback** — when `subject.trailer.videoAddress.url` exists, a `▶ Trailer` button appears next to Bookmark on the detail page. Opens a minimal overlay with the promo MP4. No history tracking.
 
 **Player keyboard shortcuts:**
 
@@ -348,16 +361,6 @@ Single-file vanilla JS, no build step, no dependencies. Served by the same FastA
 
 ---
 
-### Screenshots
-
-![Home](screenshots/home.png)
-![Catalog](screenshots/catalog.png)
-![Player](screenshots/player.png)
-
-More at [`screenshots/`](screenshots/).
-
----
-
 ## Architecture
 
 ### Module layout
@@ -366,8 +369,8 @@ More at [`screenshots/`](screenshots/).
 config.py            env vars + headers + constants
 state.py             mutable globals (client, db, tokens, caches, walk_state)
 providers.py         provider health, circuit breaker, probe loop
-upstream.py          token cache, bff_request, player, stream resolution
-storage.py           sqlite schema, read, upsert
+upstream.py          token cache, bff_request (failover), player, stream resolution
+storage.py           sqlite schema, FTS5, read, upsert, classify
 helpers.py           normalize, srt_to_vtt, pick_mp4_stream
 catalog_worker.py    walk, enrichment, maintenance loop
 dashboard.py         DASHBOARD_HTML string
@@ -377,6 +380,8 @@ static/app.html      frontend
 ```
 
 No circular imports. Import order: `config → state → providers → upstream → catalog_worker → routes → main`. `storage` and `helpers` are leaf modules.
+
+The rule throughout: `import state` / `import providers` — never `from state import client`. Mutable references stay live via module attribute access.
 
 ### Guest tokens per provider
 
@@ -396,12 +401,24 @@ All 7 known mirrors share the same aoneroom backend — the failover is pure res
 
 Two-tier source for the index:
 
-1. **Home ingest** — every subject appearing in `/home` under a category section gets tagged with `is_movie` / `is_tv` / `is_anime` based on the section name
+1. **Home ingest** — every subject appearing in `/home` under a category section gets tagged with `is_movie` / `is_tv` / `is_anime` based on substring matching against the section name
 2. **Keyword walk** — 36 keywords (a-z, 0-9), paginate until `hasMore: false` or `CATALOG_MAX_PAGES_PER_KEYWORD`, upsert every subject
 
 After walking, a background enricher hits `/detail/{slug}` for every subject whose type is unknown and reads `subjectType` (1=movie, 2=series, 6=music video) plus `genre` (contains "anime" → `is_anime`). This is what gets movies from 44 to 400+ and TV from 60 to 300+.
 
 The walk re-runs every 6 hours. Enrichment runs once after each walk. `POST /catalog/refresh` forces both manually.
+
+**Home feed is geo-targeted.** Mumbai sees `Cinema`, `Bollywood`, `Top Anime`. Singapore sees `Popular Movie`, `K-Drama`, `Anime[English Dubbed]`. The classifier uses substring matching (`movie`, `series`, `anime`, etc.) so both work. Genre-named sections (Comedy, Epic Fantasy, BL Story) fall through to enrichment.
+
+### FTS5 search
+
+`subjects_fts` is an FTS5 virtual table using external content mode — it mirrors the `subjects` table via triggers (`subjects_fts_ai/ad/au`). On first boot, if the row counts drift, `init_schema` rebuilds the FTS index. From then on, triggers keep it in sync on every insert/update/delete.
+
+Query path: `/catalog?q=` calls `storage.fts_search()` which returns matching subject_ids or `None`. `None` (FTS unavailable or short query) → fall back to `title LIKE ?`. Empty list (FTS ran, no matches) → `WHERE 1 = 0`. Non-empty list → `subject_id IN (...)`.
+
+### SQLite integrity check
+
+On boot, right after `init_schema`, the lifespan runs `PRAGMA integrity_check`. If the DB is corrupt, the process prints the fix command and exits(1) before uvicorn binds the port. This is the safety net for the case where you accidentally run two `python main.py` against the same `catalog.db` — better to fail loudly than silently on every write while reads succeed.
 
 ### SRT → VTT
 
@@ -439,7 +456,7 @@ The walk re-runs every 6 hours. Enrichment runs once after each walk. `POST /cat
 
 ## Verification
 
-`verify.py` runs a live integration pass against a running server. 27 checks, chains real requests — pulls a slug from `/home`, feeds `/detail`, `/api/stream`, `/captions`, `/proxy`, `/subtitles`. Also exercises `/providers`, `/api/hosts`, catalog sorts and filters.
+`verify.py` runs a live integration pass against a running server. 27 checks, chains real requests — pulls a slug from `/home`, feeds `/detail`, `/api/stream`, `/captions`, `/proxy`, `/subtitles`. Also exercises `/providers`, `/api/hosts`, catalog sorts, filters, FTS search.
 
 ```bash
 # server must be running
@@ -480,26 +497,34 @@ No config file. `set -a && source .env && set +a && python main.py` or `docker c
 
 - **Behind a reverse proxy** — forward the full path. Routes assume `/` as root.
 - **Healthcheck** — point your orchestrator at `/health`.
-- **Long-running** — tokens are per-process, per-host. Multiple workers each acquire their own.
+- **Persist `catalog.db`** — mount it as a volume or the walk restarts on every container rebuild. The compose file already bind-mounts it.
 - **Rate limits** — upstream is unauthenticated for guests. Heavy polling will get throttled.
-- **Persist `catalog.db`** — mount it as a volume or the walk restarts on every container rebuild.
+- **Basic auth** — if exposing beyond localhost, put `auth_basic` in the nginx config from day one. See `CONTRIBUTING.md` for the threat model.
 - **ToS** — you're calling a third party's private API. Behave accordingly.
 
 ---
 
 ## Troubleshooting
 
-### `/home` returns 500
+### `database disk image is malformed` in logs
 
-Check `/health` and `/providers`. If a helper module is broken, verify.py step 1 fails on the same route. If all providers are up but `/home` fails, the issue is local — check server logs.
+Two processes running against one `catalog.db`. Stop the server, `lsof catalog.db` to find any orphan PIDs, kill them, then `rm -f catalog.db catalog.db-wal catalog.db-shm` and restart clean. The integrity check on boot will now catch this before the port is bound.
 
-### Catalog shows `total: 0`
+### `FATAL: catalog.db is corrupt` on boot
 
-The walk either hasn't run yet or crashed. `POST /catalog/refresh` and watch `/catalog/stats` — `walk_state.running` should flip to `true` within a second.
+Same as above — the integrity check fired. Run the fix command it printed and restart.
+
+### Catalog shows `total: 0` or stays at 44
+
+The walk hasn't finished or enrichment is still running. `POST /catalog/refresh` and watch `/catalog/stats`. `walk_state.running` should flip to `true` within a second.
 
 ### `?type=movie` returns fewer results than expected
 
 Enrichment hasn't finished. Only home-ingested subjects have type tags until enrichment runs. Watch `untyped_pending_enrichment` in `/catalog/stats` — when it hits 0, everything has a type.
+
+### `/movies` and `/catalog?type=movie` show different counts
+
+They're different tools. `/movies` is a home-section fallback (44 items from Cinema/Bollywood/etc.). `/catalog?type=movie` is the indexed DB (400+ items). Use `/catalog` for real browsing.
 
 ### Stream proxy returns 502
 
@@ -517,7 +542,7 @@ Upstream `/subject/search` is relevance-ranked, not exhaustive. `Matrix` isn't i
 
 ## Changelog
 
-**v2.7.0** — module split (10 files), provider failover with per-host circuit breakers, multi-host detection, `/providers` + `/providers/probe` + `/providers/reset` endpoints.
+**v2.7.0** — module split (10 files), provider failover with per-host circuit breakers, multi-host detection, `/providers` + `/providers/probe` + `/providers/reset`, FTS5 catalog search, trailer playback on detail pages, continue-watching row on home, SQLite integrity check on boot.
 
 **v2.6.0** — multi-host probe, `?host=` on every BFF endpoint, `source_host` column in catalog.
 
@@ -527,7 +552,7 @@ Upstream `/subject/search` is relevance-ranked, not exhaustive. `Matrix` isn't i
 
 **v2.3.3** — re-added `/` dashboard route; `/api/tabs/variants` confirms `/subject/filter` requires auth as guest.
 
-**v2.3.2** — catalog home-fallback (when filter returns sentinel), `/sections`, `/browse/{section}`.
+**v2.3.2** — catalog home-fallback, `/sections`, `/browse/{section}`, fuzzy section matching.
 
 **v2.3.1** — `/search/suggest` honesty (text-only upstream), `total_sentinel` flag, `?tab=` override, `/api/tabs`.
 

@@ -234,7 +234,6 @@ async def catalog(
     if q:
         fts_ids = storage.fts_search(q)
         if fts_ids is None:
-            # FTS unavailable or query too short — fall back to LIKE
             where.append("title LIKE ?")
             params.append(f"%{q}%")
         elif fts_ids:
@@ -242,7 +241,6 @@ async def catalog(
             where.append(f"subject_id IN ({placeholders})")
             params.extend(fts_ids)
         else:
-            # FTS ran cleanly but found nothing
             where.append("1 = 0")
     if host:
         where.append("source_host = ?")

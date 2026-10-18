@@ -457,7 +457,6 @@ async function renderHome() {
     }
 
     if (bannerItems && bannerItems.length > 0) {
-      // insert hero above all other sections
       const hero = renderBannerCarousel(bannerItems);
       const contEl = app.firstChild && app.firstChild.querySelector
         ? app.firstChild

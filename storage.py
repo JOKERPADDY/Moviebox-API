@@ -120,6 +120,10 @@ def read_scalar(sql: str, params: tuple = ()):
 
 
 def classify_section(title: str) -> tuple[int, int, int]:
+    """Best-effort section → type mapping using substring keywords.
+    Works across geo-shifted home feeds — 'Popular Movie' (Singapore) and
+    'Cinema' (Mumbai) both → is_movie=1. Genre-named sections that don't
+    match any keyword fall through to enrichment via /detail."""
     clean = title.lower().replace("🔥", "").replace("🆓", "").strip()
     is_movie = 1 if any(kw in clean for kw in (
         "movie", "cinema", "nollywood", "bollywood", "hollywood",

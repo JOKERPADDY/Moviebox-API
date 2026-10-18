@@ -12,6 +12,8 @@ env/
 .ruff_cache/
 .idea/
 .vscode/
+
+# Catalog index — regenerate per machine
 catalog.db
 catalog.db-wal
 catalog.db-shm
