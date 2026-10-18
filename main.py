@@ -33,6 +33,21 @@ async def lifespan(app: FastAPI):
     state.write_conn.execute("PRAGMA journal_mode=WAL")
     state.write_conn.execute("PRAGMA synchronous=NORMAL")
     storage.init_schema()
+
+    # Refuse to start on a corrupt DB — otherwise every write fails silently
+    # with "database disk image is malformed" while reads still succeed,
+    # which is very confusing to debug. Better to fail fast and loud.
+    try:
+        result = state.write_conn.execute("PRAGMA integrity_check").fetchone()
+        if result and result[0] != "ok":
+            print(f"FATAL: {CATALOG_DB} is corrupt ({result[0]})")
+            print(f"Fix: rm -f {CATALOG_DB} {CATALOG_DB}-wal {CATALOG_DB}-shm, then restart")
+            raise SystemExit(1)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"integrity check skipped: {e}")
+
     state.background_task = asyncio.create_task(catalog_worker.maintenance_loop())
     state.probe_task = asyncio.create_task(providers.probe_loop())
     try:
