@@ -6,9 +6,6 @@
 
 A pure REST API wrapper around [moviebox.ph](https://moviebox.ph) with an indexed catalog, provider failover, and a self-hosted frontend.
 
-API Dashboard : [mb.cyerox.fun](https://mb.cyerox.fun) <br>
-Frontend Web App : [mb.cyerox.fun/app](https://mb.cyerox.fun/app)
-
 No scraping. No HTML parsing. No headless browser. It talks the exact same private JSON API the moviebox web player talks — `h5-api.aoneroom.com/wefeed-h5api-bff` — and re-exposes it as a clean, self-hosted REST surface plus a browser UI.
 
 Built for people who want to wire moviebox into their own apps, scripts, bots, dashboards, or media servers without reverse-engineering the network tab every time the site ships an update.
