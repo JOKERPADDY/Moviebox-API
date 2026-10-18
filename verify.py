@@ -1,10 +1,8 @@
 """
-Live verification for MovieBox API Pro v2.4.0.
-Includes new catalog index checks.
+Live verification for MovieBox API Pro v2.7.0.
 Run against a live server: python verify.py [base_url]
 """
 import sys
-import time
 import httpx
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
@@ -60,8 +58,9 @@ try:
         items = s.get("items", [])
         print(f"    [{s['section']}] {s['count']} items")
         if items and not home_slug:
-            home_slug = items[0].get("slug")
-            home_sid = items[0].get("subject_id")
+            first = items[0]
+            home_slug = first.get("slug")
+            home_sid = first.get("subject_id")
             print(f"    picked: slug={home_slug} sid={home_sid}")
 except Exception as e:
     record(ok(False, f"exception: {e}"))
@@ -100,26 +99,20 @@ try:
     record(ok(r.status_code == 200 and schema_ok, f"status {r.status_code}, total={total}, items={len(items)}"))
     if items:
         sample_items(items, "catalog")
-        typed = [i for i in items if i.get("types")]
-        if typed:
-            print(f"    typed items in sample: {len(typed)}/{len(items)}")
 except Exception as e:
     record(ok(False, f"exception: {e}"))
-    
+
 # ── 5. catalog sorts ───────────────────────────────────────────────────────
 hr("GET /catalog?sort=title  and  ?sort=rating")
 for sort in ("title", "rating"):
     try:
         r = httpx.get(f"{BASE}/catalog", params={"sort": sort, "per_page": 3}, timeout=TIMEOUT)
         data = r.json()
-        items = data.get("items", [])
         record(ok(r.status_code == 200, f"sort={sort}, status {r.status_code}, total={data.get('total')}"))
-        for it in items[:2]:
-            print(f"    {sort}: {str(it.get('name'))[:50]!r} rating={it.get('rating')}")
     except Exception as e:
         record(ok(False, f"exception: {e}"))
 
-# ── 6. catalog filter by type ──────────────────────────────────────────────
+# ── 6. catalog type filters ────────────────────────────────────────────────
 hr("GET /catalog?type=movie  /  ?type=tv  /  ?type=anime")
 for t in ("movie", "tv", "anime"):
     try:
@@ -140,7 +133,7 @@ try:
 except Exception as e:
     record(ok(False, f"exception: {e}"))
 
-# ── 8. catalog refresh POST ────────────────────────────────────────────────
+# ── 8. catalog refresh ─────────────────────────────────────────────────────
 hr("POST /catalog/refresh")
 try:
     r = httpx.post(f"{BASE}/catalog/refresh", timeout=TIMEOUT)
@@ -200,7 +193,27 @@ if home_sid and home_slug:
 else:
     record(ok(False, "no sid"))
 
-# ── 13. proxy ──────────────────────────────────────────────────────────────
+# ── 13. captions ───────────────────────────────────────────────────────────
+hr("GET /api/stream/{sid}/captions")
+captions_lang = None
+if home_sid and home_slug:
+    try:
+        r = httpx.get(
+            f"{BASE}/api/stream/{home_sid}/captions",
+            params={"detail_path": home_slug},
+            timeout=TIMEOUT,
+        )
+        data = r.json()
+        caps = data.get("captions", [])
+        record(ok(r.status_code == 200, f"status {r.status_code}, count={data.get('count')}"))
+        if caps:
+            captions_lang = caps[0].get("lan")
+    except Exception as e:
+        record(ok(False, f"exception: {e}"))
+else:
+    record(ok(False, "no sid"))
+
+# ── 14. proxy ──────────────────────────────────────────────────────────────
 hr("GET /api/stream/{sid}/proxy  (Range)")
 if home_sid and home_slug:
     try:
@@ -222,34 +235,114 @@ if home_sid and home_slug:
 else:
     record(ok(False, "no sid"))
 
-# ── 14. health ─────────────────────────────────────────────────────────────
+# ── 15. subtitles VTT ──────────────────────────────────────────────────────
+hr("GET /api/stream/{sid}/subtitles/{lang}")
+if home_sid and home_slug and captions_lang:
+    try:
+        r = httpx.get(
+            f"{BASE}/api/stream/{home_sid}/subtitles/{captions_lang}",
+            params={"detail_path": home_slug},
+            timeout=TIMEOUT,
+        )
+        starts_vtt = r.text.startswith("WEBVTT")
+        record(ok(r.status_code == 200 and starts_vtt,
+                  f"status {r.status_code}, lang={captions_lang}, WEBVTT={starts_vtt}"))
+    except Exception as e:
+        record(ok(False, f"exception: {e}"))
+elif home_sid and home_slug:
+    record(ok(True, "no captions to test (skip)"))
+else:
+    record(ok(False, "no sid"))
+
+# ── 16. tab variants ───────────────────────────────────────────────────────
+hr("GET /api/tabs/variants?tab_id=2")
+try:
+    r = httpx.get(f"{BASE}/api/tabs/variants", params={"tab_id": 2}, timeout=TIMEOUT)
+    data = r.json()
+    variants = data.get("variants", [])
+    record(ok(r.status_code == 200, f"status {r.status_code}, {len(variants)} variants tested"))
+    for v in variants:
+        if v.get("error"):
+            print(f"    {v['variant']:15} ERROR")
+            continue
+        print(f"    {v['variant']:15} count={v['count']:>2} "
+              f"total={v['pager_total']} sentinel={v['sentinel']}")
+except Exception as e:
+    record(ok(False, f"exception: {e}"))
+
+# ── 17. health ─────────────────────────────────────────────────────────────
 hr("GET /health")
 try:
     r = httpx.get(f"{BASE}/health", timeout=TIMEOUT)
     data = r.json()
     record(ok(r.status_code == 200 and data.get("status") == "ok",
-              f"version={data.get('version')} token_cached={data.get('token_cached')} "
+              f"version={data.get('version')} tokens_cached={data.get('tokens_cached')} "
               f"indexed={data.get('catalog_indexed')} walk_running={data.get('walk_running')}"))
 except Exception as e:
     record(ok(False, f"exception: {e}"))
 
-# ── 15. catalog enrichment refresh ─────────────────────────────────────────
-hr("POST /catalog/refresh?mode=enrich")
+# ── 18. frontend ───────────────────────────────────────────────────────────
+hr("GET /app  (frontend)")
 try:
-    r = httpx.post(f"{BASE}/catalog/refresh", params={"mode": "enrich"}, timeout=TIMEOUT)
-    data = r.json()
-    record(ok(r.status_code == 200 and "status" in data,
-              f"status {r.status_code}, response={data.get('status')}"))
+    r = httpx.get(f"{BASE}/app", timeout=TIMEOUT)
+    is_html = r.status_code == 200 and "<html" in r.text.lower() and "MovieBox" in r.text
+    record(ok(is_html, f"status {r.status_code}, html={'YES' if is_html else 'NO'}"))
 except Exception as e:
     record(ok(False, f"exception: {e}"))
 
-# ── 16. catalog manual add (Matrix) ────────────────────────────────────────
-hr("POST /catalog/add?slug=matrix-W1E5680Y2S5")
+# ── 19. providers ──────────────────────────────────────────────────────────
+hr("GET /providers")
 try:
-    r = httpx.post(f"{BASE}/catalog/add", params={"slug": "matrix-W1E5680Y2S5"}, timeout=TIMEOUT)
+    r = httpx.get(f"{BASE}/providers", timeout=TIMEOUT)
     data = r.json()
-    record(ok(r.status_code == 200 and data.get("status") == "added",
-              f"status {r.status_code}, subject_type={data.get('subject_type')} title={data.get('title')!r}"))
+    providers_list = data.get("providers", [])
+    record(ok(r.status_code == 200 and len(providers_list) > 0,
+              f"status {r.status_code}, {data.get('healthy', 0)}/{len(providers_list)} healthy"))
+    for p in providers_list:
+        state_str = "OK" if p["alive"] and not p["circuit_open"] else ("OPEN" if p["circuit_open"] else "DEAD")
+        print(f"    [{state_str:4}] {p['host']:30} latency={p['avg_latency_ms']}ms "
+              f"ok={p['total_success']} fail={p['total_failure']}")
+except Exception as e:
+    record(ok(False, f"exception: {e}"))
+
+# ── 20. providers probe ────────────────────────────────────────────────────
+hr("POST /providers/probe")
+try:
+    r = httpx.post(f"{BASE}/providers/probe", timeout=TIMEOUT)
+    data = r.json()
+    probe_results = data.get("results", [])
+    alive = sum(1 for x in probe_results if x.get("alive"))
+    record(ok(r.status_code == 200 and len(probe_results) > 0,
+              f"status {r.status_code}, {alive}/{len(probe_results)} alive"))
+except Exception as e:
+    record(ok(False, f"exception: {e}"))
+
+# ── 21. legacy hosts ───────────────────────────────────────────────────────
+hr("GET /api/hosts")
+try:
+    r = httpx.get(f"{BASE}/api/hosts", timeout=TIMEOUT)
+    data = r.json()
+    host_results = data.get("results", [])
+    alive = [x for x in host_results if x.get("alive")]
+    unique = data.get("unique_catalogs", 0)
+    record(ok(r.status_code == 200 and len(host_results) > 0,
+              f"status {r.status_code}, {len(alive)}/{len(host_results)} alive, {unique} unique catalogs"))
+    for h in host_results:
+        status_str = "ALIVE" if h.get("alive") else "DEAD"
+        extra = f" latency={h.get('latency_ms', '?')}ms" if h.get("alive") else ""
+        print(f"    [{status_str:5}] {h['host']}{extra}")
+except Exception as e:
+    record(ok(False, f"exception: {e}"))
+
+# ── 22. catalog stats by host ──────────────────────────────────────────────
+hr("GET /catalog/stats — by_host")
+try:
+    r = httpx.get(f"{BASE}/catalog/stats", timeout=TIMEOUT)
+    data = r.json()
+    by_host = data.get("by_host", {})
+    record(ok(r.status_code == 200, f"status {r.status_code}, {len(by_host)} hosts in catalog"))
+    for host, count in by_host.items():
+        print(f"    {host}: {count} subjects")
 except Exception as e:
     record(ok(False, f"exception: {e}"))
 

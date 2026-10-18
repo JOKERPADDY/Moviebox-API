@@ -11,3 +11,6 @@ env/
 .ruff_cache/
 .idea/
 .vscode/
+catalog.db
+catalog.db-wal
+catalog.db-shm

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MovieBox</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#07080c;color:#fff;min-height:100vh}
+header{position:sticky;top:0;z-index:100;background:rgba(7,8,12,0.95);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,0.06);padding:16px 32px;display:flex;align-items:center;gap:24px}
+.logo{font-size:1.4rem;font-weight:800;color:#fff;text-decoration:none;letter-spacing:-1px}
+.search-wrap{position:relative;flex:0 1 320px}
+#search{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 16px;color:#fff;font-size:0.95rem;width:100%;outline:none;transition:all 0.2s}
+#search:focus{background:rgba(255,255,255,0.08);border-color:#ff3d71}
+#search-results{position:absolute;top:100%;left:0;right:0;margin-top:8px;background:#0e0f14;border:1px solid rgba(255,255,255,0.1);border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.6);max-height:400px;overflow-y:auto;display:none}
+#search-results:not(:empty){display:block}
+.search-result{display:block;padding:12px 16px;color:#fff;text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.05);font-size:0.9rem}
+.search-result:hover{background:rgba(255,61,113,0.1)}
+nav{margin-left:auto;display:flex;gap:4px}
+nav a{color:#9ea3ac;text-decoration:none;padding:8px 16px;border-radius:8px;font-weight:500;font-size:0.9rem;transition:all 0.2s}
+nav a:hover{background:rgba(255,255,255,0.05);color:#fff}
+main{padding:32px;max-width:1400px;margin:0 auto}
+.section{margin-bottom:48px}
+.section-header{display:flex;align-items:baseline;gap:12px;margin-bottom:16px}
+.section-header h2{font-size:1.4rem;font-weight:700;cursor:pointer;transition:color 0.2s}
+.section-header h2:hover{color:#ff3d71}
+.count{color:#667;font-size:0.85rem}
+.row{display:flex;gap:16px;overflow-x:auto;padding-bottom:8px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.1) transparent}
+.row::-webkit-scrollbar{height:6px}
+.row::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px}
+.card{flex-shrink:0;width:180px;color:#fff;text-decoration:none;transition:transform 0.2s}
+.card:hover{transform:translateY(-4px)}
+.poster{width:100%;aspect-ratio:2/3;background:#1a1b22;border-radius:12px;overflow:hidden;margin-bottom:8px;position:relative}
+.poster img{width:100%;height:100%;object-fit:cover}
+.no-poster{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#333;font-size:2rem}
+.card-title{font-size:0.85rem;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;margin-bottom:4px}
+.card-meta{font-size:0.75rem;color:#667}
+.badge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.8);padding:3px 8px;border-radius:6px;font-size:0.65rem;font-weight:700;color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:24px;margin-top:24px}
+.filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.filter-btn{padding:8px 16px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#9ea3ac;text-decoration:none;font-size:0.9rem;font-weight:500;transition:all 0.2s;cursor:pointer}
+.filter-btn:hover,.filter-btn.active{background:#ff3d71;border-color:#ff3d71;color:#fff}
+.sort-select,.catalog-search{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;color:#fff;font-size:0.9rem;outline:none}
+.catalog-search{min-width:200px}
+.catalog-meta{color:#667;font-size:0.9rem;margin-bottom:16px}
+.pager{display:flex;justify-content:center;gap:16px;margin-top:32px;align-items:center}
+.page-btn{padding:10px 20px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;text-decoration:none;font-weight:600;transition:all 0.2s}
+.page-btn:hover{background:#ff3d71;border-color:#ff3d71}
+.page-info{color:#667}
+.detail-header{display:grid;grid-template-columns:300px 1fr;gap:40px;margin-top:20px}
+.detail-poster img{width:100%;border-radius:16px}
+.detail-info h1{font-size:2.5rem;font-weight:800;margin-bottom:16px;letter-spacing:-1px;line-height:1.1}
+.desc{color:#9ea3ac;line-height:1.6;margin-bottom:20px;max-width:700px}
+.meta{display:flex;gap:16px;margin-bottom:24px;color:#667;flex-wrap:wrap}
+.meta span{padding:4px 10px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:0.85rem}
+.play-btn{padding:14px 32px;background:#ff3d71;color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;transition:all 0.2s}
+.play-btn:hover{background:#ff1a4f;transform:translateY(-2px)}
+.seasons{display:flex;flex-direction:column;gap:24px;margin-top:8px}
+.season h3{margin-bottom:12px;font-size:1.1rem}
+.episodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+.ep-btn{padding:10px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;cursor:pointer;font-size:0.85rem;text-align:left;transition:all 0.2s}
+.ep-btn:hover{background:#ff3d71;border-color:#ff3d71}
+.raw-detail{margin-top:40px;color:#667;font-size:0.85rem}
+.raw-detail summary{cursor:pointer;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px}
+.raw-detail pre{margin-top:8px;padding:16px;background:#0e0f14;border-radius:8px;overflow:auto;max-height:400px;font-size:0.75rem;color:#9ea3ac}
+.player-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:1000;display:flex;align-items:center;justify-content:center;padding:32px}
+.player-container{width:100%;max-width:1200px;position:relative}
+.player-video{width:100%;max-height:80vh;background:#000;border-radius:12px;display:block}
+.player-info{margin-top:12px;color:#667;font-size:0.85rem;text-align:center}
+.close-btn{position:absolute;top:-16px;right:-16px;width:44px;height:44px;background:#ff3d71;color:#fff;border:none;border-radius:50%;font-size:1.2rem;cursor:pointer;z-index:10;transition:transform 0.2s}
+.close-btn:hover{transform:scale(1.1)}
+.loading{padding:60px;text-align:center;color:#667}
+.error{padding:40px;background:rgba(255,61,113,0.1);border:1px solid #ff3d71;border-radius:12px;color:#ff3d71}
+.cast{margin-top:24px}
+.cast-label{font-size:0.8rem;color:#667;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:10px}
+.cast-chips{display:flex;gap:8px;flex-wrap:wrap}
+.cast-chip{padding:6px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:20px;font-size:0.8rem;color:#ccc}
+.languages{margin-top:24px}
+.lang-label{font-size:0.8rem;color:#667;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:10px}
+.lang-chips{display:flex;gap:8px;flex-wrap:wrap}
+.lang-chip{padding:6px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:20px;font-size:0.8rem;color:#9ea3ac;text-decoration:none;transition:all 0.2s}
+.lang-chip:hover{background:rgba(255,61,113,0.1);border-color:#ff3d71;color:#fff}
+.lang-chip.active{background:#ff3d71;border-color:#ff3d71;color:#fff;font-weight:700}
+.access-note{margin-top:12px;color:#667;font-size:0.85rem;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:2px solid #ff3d71}
+.ep-btn.locked{color:#667}
+.ep-btn.locked:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.2)}
+@media(max-width:768px){header{padding:12px 16px;flex-wrap:wrap}.search-wrap{flex:1 1 100%;order:3}main{padding:16px}.detail-header{grid-template-columns:1fr;gap:20px}.detail-poster{max-width:200px}.detail-info h1{font-size:1.8rem}.card{width:140px}}
+</style>
+</head>
+<body>
+<header>
+  <a href="#/" class="logo">MovieBox</a>
+  <div class="search-wrap">
+    <input id="search" placeholder="Search movies, series, anime..." autocomplete="off">
+    <div id="search-results"></div>
+  </div>
+  <nav>
+    <a href="#/">Home</a>
+    <a href="#/catalog">Catalog</a>
+  </nav>
+</header>
+<main id="app"></main>
+<script>
+const $ = (sel) => document.querySelector(sel);
+
+function qs(params) {
+  const clean = {};
+  for (const k in params) {
+    if (params[k] !== null && params[k] !== undefined && params[k] !== '') clean[k] = params[k];
+  }
+  return new URLSearchParams(clean).toString();
+}
+
+async function api(path, params) {
+  const url = path + (params && Object.keys(params).length ? '?' + qs(params) : '');
+  const r = await fetch(url);
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`${r.status}: ${t.slice(0, 200)}`);
+  }
+  return r.json();
+}
+
+function el(tag, attrs, ...children) {
+  const e = document.createElement(tag);
+  if (attrs) {
+    for (const k in attrs) {
+      const v = attrs[k];
+      if (v == null || v === false) continue;
+      if (k === 'class') e.className = v;
+      else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v);
+    }
+  }
+  for (const c of children) {
+    if (c == null || c === false) continue;
+    e.append(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(c) : c);
+  }
+  return e;
+}
+
+function escape(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderCard(item) {
+  return el('a', { class: 'card', href: `#/detail/${item.slug || ''}` },
+    el('div', { class: 'poster' },
+      item.poster_url ? el('img', { src: item.poster_url, loading: 'lazy', alt: item.name || '' }) : el('div', { class: 'no-poster' }, '?'),
+      item.badge ? el('div', { class: 'badge' }, item.badge) : null
+    ),
+    el('div', { class: 'card-title' }, item.name || '?'),
+    el('div', { class: 'card-meta' },
+      item.rating ? `★ ${item.rating}` : '',
+      item.rating && item.year ? ' · ' : '',
+      item.year || ''
+    )
+  );
+}
+
+async function renderHome() {
+  const app = $('#app');
+  app.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const data = await api('/home');
+    app.innerHTML = '';
+    for (const section of data.sections) {
+      if (!section.items.length) continue;
+      const header = el('div', { class: 'section-header' },
+        el('h2', { onclick: () => { location.hash = `#/browse/${encodeURIComponent(section.section)}`; } }, section.section),
+        el('span', { class: 'count' }, `${section.count} items`)
+      );
+      const row = el('div', { class: 'row' }, ...section.items.map(renderCard));
+      app.append(el('section', { class: 'section' }, header, row));
+    }
+  } catch (e) {
+    app.innerHTML = `<div class="error">${escape(e.message)}</div>`;
+  }
+}
+
+async function renderCatalog(params) {
+  const app = $('#app');
+  const type = params.get('type') || 'all';
+  const sort = params.get('sort') || 'recent';
+  const page = parseInt(params.get('page') || '1');
+  const q = params.get('q') || '';
+
+  app.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const query = { type, sort, page, per_page: 24 };
+    if (q) query.q = q;
+    const data = await api('/catalog', query);
+    app.innerHTML = '';
+
+    const filters = el('div', { class: 'filters' });
+    for (const t of ['all', 'movie', 'tv', 'anime']) {
+      filters.append(el('a', {
+        class: `filter-btn${t === type ? ' active' : ''}`,
+        href: `#/catalog?${qs({ type: t, sort, q })}`
+      }, t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1)));
+    }
+    const sortSelect = el('select', {
+      class: 'sort-select',
+      onchange: (e) => { location.hash = `#/catalog?${qs({ type, sort: e.target.value, q })}`; }
+    });
+    for (const s of ['recent', 'title', 'rating']) {
+      const opt = el('option', { value: s }, s === 'recent' ? 'Recent' : s === 'title' ? 'Title A-Z' : 'Rating');
+      if (s === sort) opt.selected = true;
+      sortSelect.append(opt);
+    }
+    filters.append(sortSelect);
+
+    const catalogSearch = el('input', {
+      class: 'catalog-search',
+      placeholder: 'Filter by title (Enter)...',
+      value: q,
+      onkeydown: (e) => {
+        if (e.key === 'Enter') {
+          location.hash = `#/catalog?${qs({ type, sort, q: e.target.value })}`;
+        }
+      }
+    });
+    filters.append(catalogSearch);
+
+    app.append(filters);
+    app.append(el('div', { class: 'catalog-meta' },
+      `${data.total} results · page ${data.page} of ${data.total_pages || 1}`));
+
+    const grid = el('div', { class: 'grid' });
+    for (const item of data.items) {
+      const badge = (item.types || [])[0];
+      const card = renderCard({ ...item, badge });
+      grid.append(card);
+    }
+    app.append(grid);
+
+    if ((data.total_pages || 0) > 1) {
+      const pager = el('div', { class: 'pager' });
+      const base = { type, sort, q };
+      if (page > 1) pager.append(el('a', { class: 'page-btn', href: `#/catalog?${qs({ ...base, page: page - 1 })}` }, '← Prev'));
+      pager.append(el('span', { class: 'page-info' }, `${page} / ${data.total_pages}`));
+      if (page < data.total_pages) pager.append(el('a', { class: 'page-btn', href: `#/catalog?${qs({ ...base, page: page + 1 })}` }, 'Next →'));
+      app.append(pager);
+    }
+  } catch (e) {
+    app.innerHTML = `<div class="error">${escape(e.message)}</div>`;
+  }
+}
+
+async function renderBrowse(section) {
+  const app = $('#app');
+  app.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const data = await api(`/browse/${encodeURIComponent(section)}`, { per_page: 100 });
+    app.innerHTML = '';
+    app.append(el('h2', { style: 'margin-bottom:8px' }, data.section));
+    app.append(el('div', { class: 'catalog-meta' }, `${data.total} items`));
+    const grid = el('div', { class: 'grid' });
+    for (const item of data.items) grid.append(renderCard(item));
+    app.append(grid);
+  } catch (e) {
+    app.innerHTML = `<div class="error">${escape(e.message)}</div>`;
+  }
+}
+
+function extractSeasons(resource) {
+  if (!resource) return [];
+  const candidates = [
+    resource.seasons,
+    resource.seasonList,
+    (resource.data || {}).seasons,
+    (resource.metadata || {}).seasons,
+  ].filter(Array.isArray);
+  for (const c of candidates) {
+    if (c.length && (c[0].se !== undefined || c[0].episodes || c[0].maxEp !== undefined)) return c;
+  }
+  return [];
+}
+
+function episodesFromSeason(season) {
+  if (Array.isArray(season.episodes) && season.episodes.length) {
+    return season.episodes
+      .map(e => ({ ep: e.ep || e.episode || e.epNum || 0, name: e.name || '' }))
+      .filter(e => e.ep > 0);
+  }
+  if (season.maxEp && season.maxEp > 0) {
+    const out = [];
+    for (let i = 1; i <= season.maxEp; i++) out.push({ ep: i, name: '' });
+    return out;
+  }
+  if (Array.isArray(season.resolutions) && season.resolutions[0] && season.resolutions[0].epNum) {
+    const out = [];
+    for (let i = 1; i <= season.resolutions[0].epNum; i++) out.push({ ep: i, name: '' });
+    return out;
+  }
+  return [];
+}
+
+async function renderDetail(slug) {
+  const app = $('#app');
+  app.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const data = await api(`/detail/${slug}`);
+    const root = data.data || {};
+    const subject = root.subject || {};
+    const resource = root.resource || {};
+    const sid = subject.subjectId;
+    app.innerHTML = '';
+
+    const posterUrl = (subject.cover || {}).url;
+    const poster = el('div', { class: 'detail-poster' },
+      posterUrl ? el('img', { src: posterUrl, alt: subject.title || '' }) : null
+    );
+
+    const metaItems = [];
+    if (subject.releaseDate) metaItems.push((subject.releaseDate || '').slice(0, 4));
+    if (subject.imdbRatingValue) metaItems.push(`★ ${subject.imdbRatingValue}`);
+    if (subject.genre) metaItems.push(subject.genre);
+
+    const playArea = el('div', {});
+    const seasons = extractSeasons(resource);
+    const access = root.accessStrategy || {};
+    const freeEps = access.freeEpisodeCount || 0;
+
+    if (seasons.length) {
+      const seasonsDiv = el('div', { class: 'seasons' });
+      for (const season of seasons) {
+        const se = season.se || 1;
+        const eps = episodesFromSeason(season);
+        if (!eps.length) continue;
+        const seasonDiv = el('div', { class: 'season' },
+          el('h3', {}, `${season.name || 'Season ' + se} · ${eps.length} episode${eps.length === 1 ? '' : 's'}`)
+        );
+        const epGrid = el('div', { class: 'episodes' });
+        for (const epInfo of eps) {
+          const locked = freeEps > 0 && epInfo.ep > freeEps;
+          epGrid.append(el('button', {
+            class: `ep-btn${locked ? ' locked' : ''}`,
+            onclick: () => openPlayer(sid, slug, se, epInfo.ep)
+          }, `Ep ${epInfo.ep}${locked ? ' 🔒' : ''}`));
+        }
+        seasonDiv.append(epGrid);
+        seasonsDiv.append(seasonDiv);
+      }
+      if (seasonsDiv.children.length) {
+        playArea.append(seasonsDiv);
+        if (freeEps > 0) {
+          const previewMin = access.previewSeconds ? Math.round(access.previewSeconds / 60) : 0;
+          const note = `Episodes 1–${freeEps} free${previewMin ? `, ${previewMin}min preview after` : ''}`;
+          playArea.append(el('div', { class: 'access-note' }, note));
+        }
+      } else {
+        playArea.append(el('button', {
+          class: 'play-btn',
+          onclick: () => openPlayer(sid, slug, 1, 1)
+        }, '▶ Play'));
+      }
+    } else {
+      playArea.append(el('button', {
+        class: 'play-btn',
+        onclick: () => openPlayer(sid, slug, 1, 1)
+      }, '▶ Play'));
+    }
+
+    const stars = root.stars || [];
+    const castBlock = stars.length ? el('div', { class: 'cast' },
+      el('div', { class: 'cast-label' }, 'Cast'),
+      el('div', { class: 'cast-chips' }, ...stars.slice(0, 8).map(s =>
+        el('span', { class: 'cast-chip' },
+          s.name + (s.character ? ` · ${s.character}` : ''))
+      ))
+    ) : null;
+
+    const dubs = subject.dubs || [];
+    const dubsBlock = dubs.length > 1 ? el('div', { class: 'languages' },
+      el('div', { class: 'lang-label' }, 'Languages'),
+      el('div', { class: 'lang-chips' }, ...dubs.map(d =>
+        el('a', {
+          class: `lang-chip${String(d.subjectId) === String(subject.subjectId) ? ' active' : ''}`,
+          href: `#/detail/${d.detailPath}`
+        }, d.lanName)
+      ))
+    ) : null;
+
+    const info = el('div', { class: 'detail-info' },
+      el('h1', {}, subject.title || '?'),
+      subject.description ? el('p', { class: 'desc' }, subject.description) : null,
+      metaItems.length ? el('div', { class: 'meta' }, ...metaItems.map(m => el('span', {}, m))) : null,
+      playArea,
+      castBlock,
+      dubsBlock
+    );
+
+    app.append(el('div', { class: 'detail-header' }, poster, info));
+
+    // collapsible raw detail for debugging
+    const raw = el('details', { class: 'raw-detail' },
+      el('summary', {}, 'Raw detail response (for debugging)')
+    );
+    raw.append(el('pre', {}, JSON.stringify(root, null, 2)));
+    app.append(raw);
+  } catch (e) {
+    app.innerHTML = `<div class="error">${escape(e.message)}</div>`;
+  }
+}
+
+async function openPlayer(sid, slug, se, ep) {
+  const overlay = el('div', { class: 'player-overlay' },
+    el('div', { class: 'player-container' },
+      el('div', { class: 'loading' }, 'Loading stream...')
+    )
+  );
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
+  });
+  document.body.append(overlay);
+
+  try {
+    const stream = await api(`/api/stream/${sid}`, { detail_path: slug, se, ep });
+    if (!stream.has_resource || !stream.sources || !stream.sources.length) {
+      throw new Error(stream.note || 'No stream available');
+    }
+    const best = stream.sources.reduce((a, b) => {
+      const ra = parseInt(a.resolution) || 0;
+      const rb = parseInt(b.resolution) || 0;
+      return rb > ra ? b : a;
+    });
+
+    let captions = [];
+    try {
+      const capData = await api(`/api/stream/${sid}/captions`, { detail_path: slug, se, ep });
+      captions = capData.captions || [];
+    } catch (_) { /* captions optional */ }
+
+    const container = overlay.querySelector('.player-container');
+    container.innerHTML = '';
+    container.append(el('button', { class: 'close-btn', onclick: () => overlay.remove() }, '✕'));
+
+    const proxyUrl = `/api/stream/${sid}/proxy?${qs({ detail_path: slug, se, ep, res: 'best' })}`;
+    const video = el('video', { class: 'player-video', controls: 'controls', autoplay: 'autoplay', playsinline: '' });
+    video.append(el('source', { src: proxyUrl, type: 'video/mp4' }));
+
+    for (const cap of captions) {
+      const trackUrl = `/api/stream/${sid}/subtitles/${cap.lan}?${qs({ detail_path: slug, se, ep })}`;
+      const attrs = {
+        kind: 'subtitles',
+        src: trackUrl,
+        srclang: cap.lan,
+        label: cap.lanName || cap.lan,
+      };
+      if ((cap.lan || '').toLowerCase() === 'en') attrs.default = 'default';
+      video.append(el('track', attrs));
+    }
+
+    container.append(video);
+    container.append(el('div', { class: 'player-info' },
+      `${best.resolution || '?'} · ${best.format || '?'} · ${best.codec || '?'} · ${captions.length} subtitle track${captions.length === 1 ? '' : 's'}`));
+  } catch (e) {
+    const container = overlay.querySelector('.player-container');
+    container.innerHTML = '';
+    container.append(el('button', { class: 'close-btn', onclick: () => overlay.remove() }, '✕'));
+    container.append(el('div', { class: 'error' }, e.message));
+  }
+}
+
+// Search typeahead
+let searchTimer;
+$('#search').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  const results = $('#search-results');
+  if (q.length < 2) { results.innerHTML = ''; return; }
+  searchTimer = setTimeout(async () => {
+    try {
+      const data = await api('/search/suggest', { q, enrich: 'true' });
+      results.innerHTML = '';
+      for (const s of data.suggestions || []) {
+        if (!s.slug) continue;
+        results.append(el('a', {
+          class: 'search-result',
+          href: `#/detail/${s.slug}`,
+          onclick: () => { results.innerHTML = ''; $('#search').value = ''; }
+        }, s.title));
+      }
+    } catch (_) { results.innerHTML = ''; }
+  }, 300);
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-wrap')) $('#search-results').innerHTML = '';
+});
+
+// Router
+function route() {
+  const hash = location.hash.slice(1) || '/';
+  const [path, queryString] = hash.split('?');
+  const params = new URLSearchParams(queryString || '');
+  const parts = path.split('/').filter(Boolean);
+
+  if (parts.length === 0) { renderHome(); return; }
+  switch (parts[0]) {
+    case 'catalog': renderCatalog(params); break;
+    case 'browse': parts[1] ? renderBrowse(decodeURIComponent(parts[1])) : renderHome(); break;
+    case 'detail': parts[1] ? renderDetail(decodeURIComponent(parts[1])) : renderHome(); break;
+    default: renderHome();
+  }
+}
+
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
