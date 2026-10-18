@@ -348,6 +348,16 @@ Single-file vanilla JS, no build step, no dependencies. Served by the same FastA
 
 ---
 
+### Screenshots
+
+![Home](screenshots/home.png)
+![Catalog](screenshots/catalog.png)
+![Player](screenshots/player.png)
+
+More at [`screenshots/`](screenshots/).
+
+---
+
 ## Architecture
 
 ### Module layout
