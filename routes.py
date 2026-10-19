@@ -23,6 +23,87 @@ from helpers import (
 router = APIRouter()
 
 
+# ─── USER DATA ───────────────────────────────────────────────────────────────
+
+@router.get("/user/bookmarks")
+async def get_user_bookmarks():
+    return {"bookmarks": storage.get_bookmarks()}
+
+
+@router.post("/user/bookmarks")
+async def add_user_bookmark(request: Request):
+    body = await request.json()
+    if not body.get("slug"):
+        raise HTTPException(400, detail="slug required")
+    storage.upsert_bookmark(body)
+    if state.write_conn is not None:
+        state.write_conn.commit()
+    return {"status": "saved", "slug": body["slug"]}
+
+
+@router.delete("/user/bookmarks/{slug}")
+async def delete_user_bookmark(slug: str):
+    deleted = storage.delete_bookmark(slug)
+    if state.write_conn is not None:
+        state.write_conn.commit()
+    return {"status": "deleted" if deleted else "not_found", "slug": slug}
+
+
+@router.delete("/user/bookmarks")
+async def clear_user_bookmarks():
+    n = storage.clear_bookmarks()
+    if state.write_conn is not None:
+        state.write_conn.commit()
+    return {"deleted": n}
+
+
+@router.get("/user/history")
+async def get_user_history():
+    return {"history": storage.get_history()}
+
+
+@router.post("/user/history")
+async def add_user_history(request: Request):
+    body = await request.json()
+    if not body.get("slug") or body.get("se") is None or body.get("ep") is None:
+        raise HTTPException(400, detail="slug, se, ep required")
+    storage.upsert_history(body)
+    if state.write_conn is not None:
+        state.write_conn.commit()
+    return {"status": "saved"}
+
+
+@router.delete("/user/history/{slug}")
+async def delete_user_history(slug: str, se: int | None = None, ep: int | None = None):
+    n = storage.delete_history(slug, se, ep)
+    if state.write_conn is not None:
+        state.write_conn.commit()
+    return {"deleted": n}
+
+
+@router.delete("/user/history")
+async def clear_user_history():
+    n = storage.clear_history()
+    if state.write_conn is not None:
+        state.write_conn.commit()
+    return {"deleted": n}
+
+
+# ─── RECOMMENDATIONS ─────────────────────────────────────────────────────────
+
+@router.get("/recommendations")
+async def get_recommendations(limit: int = 20):
+    capped = max(1, min(limit, 50))
+    items = storage.recommend(limit=capped)
+    return {"count": len(items), "items": items}
+
+
+@router.get("/recommendations/because/{slug}")
+async def get_because(slug: str, limit: int = 12):
+    capped = max(1, min(limit, 30))
+    return storage.recommend_because(slug, limit=capped)
+
+
 # ─── PROVIDERS ────────────────────────────────────────────────────────────────
 
 @router.get("/providers")
@@ -316,6 +397,8 @@ async def catalog_stats():
         }
         for r in kw_rows
     }
+    bookmarks_count = storage.read_scalar("SELECT COUNT(*) FROM user_bookmarks") or 0
+    history_count = storage.read_scalar("SELECT COUNT(*) FROM user_history") or 0
     return {
         "total": total,
         "movies": movies,
@@ -325,6 +408,8 @@ async def catalog_stats():
         "untyped_pending_enrichment": untyped_pending,
         "subject_types": subject_types,
         "by_host": by_host,
+        "bookmarks_count": bookmarks_count,
+        "history_count": history_count,
         "db_path": CATALOG_DB,
         "refresh_interval_seconds": CATALOG_REFRESH_INTERVAL,
         "keywords_total": len(CATALOG_KEYWORDS),

@@ -4,6 +4,7 @@ Run against a live server: python verify.py [base_url]
 """
 import sys
 import httpx
+import time
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
 TIMEOUT = 90
@@ -345,6 +346,69 @@ try:
         print(f"    {host}: {count} subjects")
 except Exception as e:
     record(ok(False, f"exception: {e}"))
+
+# ── 23. user bookmarks round-trip ─────────────────────────────────────────
+hr("POST /user/bookmarks  →  GET  →  DELETE")
+test_slug = "verify-test-bookmark-" + str(int(time.time()))
+try:
+    r = httpx.post(f"{BASE}/user/bookmarks", json={
+        "slug": test_slug, "name": "Verify Test", "poster_url": None,
+    }, timeout=TIMEOUT)
+    post_ok = r.status_code == 200
+    r = httpx.get(f"{BASE}/user/bookmarks", timeout=TIMEOUT)
+    data = r.json()
+    bookmarks = data.get("bookmarks", [])
+    found = any(b.get("slug") == test_slug for b in bookmarks)
+    r = httpx.delete(f"{BASE}/user/bookmarks/{test_slug}", timeout=TIMEOUT)
+    del_ok = r.status_code == 200
+    record(ok(post_ok and found and del_ok,
+              f"post={post_ok} found={found} delete={del_ok} count={len(bookmarks)}"))
+except Exception as e:
+    record(ok(False, f"exception: {e}"))
+
+# ── 24. user history round-trip ───────────────────────────────────────────
+hr("POST /user/history  →  GET  →  DELETE")
+test_hist_slug = "verify-test-history-" + str(int(time.time()))
+try:
+    r = httpx.post(f"{BASE}/user/history", json={
+        "slug": test_hist_slug, "se": 1, "ep": 1, "position": 30, "duration": 100,
+    }, timeout=TIMEOUT)
+    post_ok = r.status_code == 200
+    r = httpx.get(f"{BASE}/user/history", timeout=TIMEOUT)
+    data = r.json()
+    history = data.get("history", [])
+    found = any(h.get("slug") == test_hist_slug for h in history)
+    r = httpx.delete(f"{BASE}/user/history/{test_hist_slug}", timeout=TIMEOUT)
+    del_ok = r.status_code == 200
+    record(ok(post_ok and found and del_ok,
+              f"post={post_ok} found={found} delete={del_ok} count={len(history)}"))
+except Exception as e:
+    record(ok(False, f"exception: {e}"))
+
+# ── 25. recommendations ───────────────────────────────────────────────────
+hr("GET /recommendations")
+try:
+    r = httpx.get(f"{BASE}/recommendations", params={"limit": 10}, timeout=TIMEOUT)
+    data = r.json()
+    items = data.get("items", [])
+    record(ok(r.status_code == 200, f"status {r.status_code}, count={data.get('count')}"))
+    if items:
+        print(f"    sample: {items[0].get('name')} (rating={items[0].get('rating')}, genres={items[0].get('genre')})")
+except Exception as e:
+    record(ok(False, f"exception: {e}"))
+
+# ── 26. recommendations/because ───────────────────────────────────────────
+hr("GET /recommendations/because/{slug}")
+if home_slug:
+    try:
+        r = httpx.get(f"{BASE}/recommendations/because/{home_slug}", params={"limit": 8}, timeout=TIMEOUT)
+        data = r.json()
+        items = data.get("items", [])
+        record(ok(r.status_code == 200, f"status {r.status_code}, source={data.get('title')}, items={len(items)}"))
+    except Exception as e:
+        record(ok(False, f"exception: {e}"))
+else:
+    record(ok(False, "no slug from /home"))
 
 # ── summary ────────────────────────────────────────────────────────────────
 hr("SUMMARY")
