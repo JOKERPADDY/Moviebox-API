@@ -778,13 +778,13 @@ async function renderDetail(slug) {
       } else {
         playArea.append(el('button', {
           class: 'play-btn',
-          onclick: () => openPlayer(sid, slug, 1, 1, [], subject.title || '', posterUrl),
+          onclick: () => openPlayer(sid, slug, 0, 0, [], subject.title || '', posterUrl),
         }, '▶ Play'));
       }
     } else {
       playArea.append(el('button', {
         class: 'play-btn',
-        onclick: () => openPlayer(sid, slug, 1, 1, [], subject.title || '', posterUrl),
+        onclick: () => openPlayer(sid, slug, 0, 0, [], subject.title || '', posterUrl),
       }, '▶ Play'));
     }
 
@@ -920,7 +920,8 @@ async function openPlayer(sid, slug, se, ep, episodeList, showTitle, posterUrl) 
     const noResource = !stream.has_resource || !stream.sources || !stream.sources.length;
 
     if (noResource) {
-      buildHeader(`Episode ${ep} — not available`);
+      const label = (se === 0 && ep === 0) ? 'Movie' : `Episode ${ep}`;
+      buildHeader(`${label} — not available`);
       container.append(el('div', { class: 'access-note', style: 'padding:16px;font-size:0.95rem' },
         stream.note || 'This episode has no stream right now.'));
       const available = (episodeList || []).filter(e => e.ep !== ep);
@@ -1010,8 +1011,9 @@ async function openPlayer(sid, slug, se, ep, episodeList, showTitle, posterUrl) 
 
     container.append(video);
 
+    const episodeLabel = (se === 0 && ep === 0) ? 'Movie' : `Episode ${ep}`;
     const infoLeft = el('div', { class: 'player-info' },
-      el('strong', {}, `Episode ${ep}`),
+      el('strong', {}, episodeLabel),
       showTitle ? ` · ${showTitle}` : '',
       ` · ${sources.length} qualit${sources.length === 1 ? 'y' : 'ies'}`,
       captions.length ? ` · ${captions.length} subtitle track${captions.length === 1 ? '' : 's'}` : ''
@@ -1050,7 +1052,8 @@ async function openPlayer(sid, slug, se, ep, episodeList, showTitle, posterUrl) 
     video.addEventListener('ended', () => persist(true));
 
     video.addEventListener('error', () => {
-      buildHeader(`Episode ${ep} — stream failed`);
+      const label = (se === 0 && ep === 0) ? 'Movie' : `Episode ${ep}`;
+      buildHeader(`${label} — stream failed`);
       container.append(el('div', { class: 'access-note', style: 'padding:16px' },
         'Upstream returned an error for this source.'));
     });

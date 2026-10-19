@@ -182,34 +182,44 @@ def build_player_referer(domain: str, detail_path: str, subject_id: str, se: int
 async def resolve_stream(subject_id: str, detail_path: str, se: int, ep: int) -> dict:
     client = state.require_client()
     last_error = "unknown"
+
+    async def _attempt(domain: str, s: int, e: int) -> dict:
+        referer = build_player_referer(domain, detail_path, subject_id, s, e)
+        play_url = (
+            f"{domain}/wefeed-h5api-bff/subject/play"
+            f"?subjectId={subject_id}&se={s}&ep={e}&detailPath={detail_path}"
+        )
+        resp = await client.get(play_url, headers={**PLAYER_HEADERS, "Referer": referer})
+        if resp.status_code != 200:
+            raise HTTPException(502, f"player HTTP {resp.status_code}")
+        try:
+            data = resp.json().get("data", {}) or {}
+        except Exception:
+            raise HTTPException(502, "player non-JSON")
+        return {"domain": domain, "referer": referer, "data": data, "se": s, "ep": e}
+
     for attempt in range(2):
         try:
             domain = await get_player_domain(force_refresh=(attempt > 0))
-            referer = build_player_referer(domain, detail_path, subject_id, se, ep)
-            play_url = (
-                f"{domain}/wefeed-h5api-bff/subject/play"
-                f"?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}"
-            )
-            resp = await client.get(play_url, headers={**PLAYER_HEADERS, "Referer": referer})
-            if resp.status_code != 200:
-                last_error = f"player HTTP {resp.status_code}"
-                if attempt == 0:
-                    continue
-                raise HTTPException(502, last_error)
-            try:
-                data = resp.json().get("data", {}) or {}
-            except Exception:
-                last_error = "player non-JSON"
-                if attempt == 0:
-                    continue
-                raise HTTPException(502, last_error)
-            return {"domain": domain, "referer": referer, "data": data}
+            result = await _attempt(domain, se, ep)
+
+            # Movie fallback: if no resource and se/ep aren't 0, retry as se=0/ep=0
+            if not result["data"].get("hasResource") and (se != 0 or ep != 0):
+                try:
+                    movie = await _attempt(domain, 0, 0)
+                    if movie["data"].get("hasResource"):
+                        return movie
+                except HTTPException:
+                    pass
+
+            return result
         except HTTPException:
             raise
         except Exception as e:
             last_error = str(e)
             if attempt == 0:
                 continue
+
     raise HTTPException(502, f"Stream resolution failed: {last_error}")
 
 
