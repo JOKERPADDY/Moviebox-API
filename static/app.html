@@ -180,6 +180,19 @@ async function api(path, params) {
   return r.json();
 }
 
+async function apiPost(path, body) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`${r.status}: ${t.slice(0, 200)}`);
+  }
+  return r.json();
+}
+
 function el(tag, attrs, ...children) {
   const e = document.createElement(tag);
   if (attrs) {
@@ -211,57 +224,68 @@ function formatTime(seconds) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${m}:${String(ss).padStart(2, '0')}`;
 }
 
-const LS = {
-  get(key, fallback) {
-    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (_) { return fallback; }
-  },
-  set(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {} },
-  remove(key) { try { localStorage.removeItem(key); } catch (_) {} },
-};
+// ─── SERVER-SIDE USER DATA ──────────────────────────────────────────────────
+let _bookmarksCache = {};  // slug -> bookmark object
+let _historyCache = [];    // array sorted by updated_at desc, most recent first
 
-const KEY_BOOKMARKS = 'mb_bookmarks';
-const KEY_HISTORY = 'mb_history';
-const HISTORY_MAX = 200;
-
-function getBookmarks() { return LS.get(KEY_BOOKMARKS, {}); }
-function isBookmarked(slug) { return !!getBookmarks()[slug]; }
-
-function toggleBookmark(item) {
-  const map = getBookmarks();
-  if (map[item.slug]) {
-    delete map[item.slug];
-  } else {
-    map[item.slug] = {
-      slug: item.slug, name: item.name, poster_url: item.poster_url,
-      rating: item.rating, year: item.year, badge: item.badge, saved_at: Date.now(),
-    };
+async function loadUserData() {
+  try {
+    const [b, h] = await Promise.all([
+      api('/user/bookmarks'),
+      api('/user/history'),
+    ]);
+    _bookmarksCache = {};
+    for (const bm of (b.bookmarks || [])) {
+      _bookmarksCache[bm.slug] = bm;
+    }
+    _historyCache = h.history || [];
+  } catch (e) {
+    console.warn('Failed to load user data from server:', e);
+    _bookmarksCache = {};
+    _historyCache = [];
   }
-  LS.set(KEY_BOOKMARKS, map);
+}
+
+function getBookmarks() { return _bookmarksCache; }
+function isBookmarked(slug) { return !!_bookmarksCache[slug]; }
+
+async function toggleBookmark(item) {
+  if (_bookmarksCache[item.slug]) {
+    delete _bookmarksCache[item.slug];
+    try {
+      await fetch(`/user/bookmarks/${encodeURIComponent(item.slug)}`, { method: 'DELETE' });
+    } catch (_) {}
+  } else {
+    _bookmarksCache[item.slug] = { ...item, saved_at: Date.now() / 1000 };
+    try {
+      await apiPost('/user/bookmarks', item);
+    } catch (_) {}
+  }
   document.querySelectorAll(`.heart[data-slug="${CSS.escape(item.slug)}"]`).forEach(h => {
-    h.classList.toggle('saved', !!map[item.slug]);
-    h.textContent = map[item.slug] ? '♥' : '♡';
+    h.classList.toggle('saved', !!_bookmarksCache[item.slug]);
+    h.textContent = _bookmarksCache[item.slug] ? '♥' : '♡';
   });
 }
 
-function getHistory() { return LS.get(KEY_HISTORY, []); }
+function getHistory() { return _historyCache; }
 
-function saveHistoryEntry({ slug, name, poster_url, se, ep, position, duration }) {
-  if (!slug || se == null || ep == null) return;
-  const list = getHistory();
-  const idx = list.findIndex(h => h.slug === slug && h.se === se && h.ep === ep);
-  const entry = {
-    slug, name, poster_url, se, ep,
-    position: Math.max(0, Math.floor(position || 0)),
-    duration: Math.max(0, Math.floor(duration || 0)),
-    updated_at: Date.now(),
+function saveHistoryEntry(entry) {
+  if (!entry.slug || entry.se == null || entry.ep == null) return;
+  const idx = _historyCache.findIndex(h => h.slug === entry.slug && h.se === entry.se && h.ep === entry.ep);
+  const full = {
+    slug: entry.slug, se: entry.se, ep: entry.ep,
+    name: entry.name, poster_url: entry.poster_url,
+    position: Math.max(0, Math.floor(entry.position || 0)),
+    duration: Math.max(0, Math.floor(entry.duration || 0)),
+    updated_at: Date.now() / 1000,
   };
-  if (idx >= 0) list.splice(idx, 1);
-  list.unshift(entry);
-  LS.set(KEY_HISTORY, list.slice(0, HISTORY_MAX));
+  if (idx >= 0) _historyCache.splice(idx, 1);
+  _historyCache.unshift(full);
+  apiPost('/user/history', full).catch(() => {});
 }
 
 function getHistoryEntry(slug, se, ep) {
-  return getHistory().find(h => h.slug === slug && h.se === se && h.ep === ep);
+  return _historyCache.find(h => h.slug === slug && h.se === se && h.ep === ep);
 }
 
 function isWatched(slug, se, ep) {
@@ -270,7 +294,7 @@ function isWatched(slug, se, ep) {
 }
 
 function recentHistoryForContinue(dedupeBySlug = true, minProgress = 30, limit = 8) {
-  const all = getHistory().filter(h => (h.position || 0) >= minProgress);
+  const all = _historyCache.filter(h => (h.position || 0) >= minProgress);
   if (!dedupeBySlug) return all.slice(0, limit);
   const seen = new Set();
   const out = [];
@@ -302,9 +326,9 @@ function renderBannerCarousel(items) {
     const saved = isBookmarked(item.slug);
     const saveBtn = el('button', {
       class: `hero-btn hero-btn-secondary${saved ? ' saved' : ''}`,
-      onclick: (e) => {
+      onclick: async (e) => {
         e.stopPropagation();
-        toggleBookmark(item);
+        await toggleBookmark(item);
         const isSaved = isBookmarked(item.slug);
         e.currentTarget.classList.toggle('saved', isSaved);
         e.currentTarget.textContent = isSaved ? '♥ Saved' : '♡ Save';
@@ -371,7 +395,7 @@ function renderCard(item, opts = {}) {
     el('button', {
       class: `heart${saved ? ' saved' : ''}`,
       'data-slug': item.slug || '',
-      onclick: (e) => { e.stopPropagation(); toggleBookmark(item); },
+      onclick: async (e) => { e.stopPropagation(); await toggleBookmark(item); },
       title: saved ? 'Remove bookmark' : 'Save to bookmarks',
     }, saved ? '♥' : '♡')
   );
@@ -427,7 +451,16 @@ async function renderHome() {
     const data = await api('/home');
     app.innerHTML = '';
 
-    // Continue watching row (above hero)
+    // 1. Hero carousel — flagship, top of the page
+    let bannerItems = null;
+    for (const section of data.sections) {
+      if (section.section === 'Banner') { bannerItems = section.items; break; }
+    }
+    if (bannerItems && bannerItems.length > 0) {
+      app.append(renderBannerCarousel(bannerItems));
+    }
+
+    // 2. Continue Watching
     const cont = recentHistoryForContinue(true, 30, 8);
     if (cont.length > 0) {
       app.append(el('section', { class: 'section' },
@@ -439,14 +472,43 @@ async function renderHome() {
       ));
     }
 
-    let bannerItems = null;
+    // 3. Because you watched
+    if (_historyCache.length > 0) {
+      const recent = _historyCache[0];
+      try {
+        const rec = await api(`/recommendations/because/${recent.slug}`, { limit: 12 });
+        if (rec.items && rec.items.length > 0) {
+          const label = `Because you watched ${rec.title || recent.name || 'a title'}`;
+          app.append(el('section', { class: 'section' },
+            el('div', { class: 'section-header' },
+              el('h2', {}, label),
+              el('span', { class: 'count' }, `${rec.items.length} similar`)
+            ),
+            el('div', { class: 'row' }, ...rec.items.map(i => renderCard(i)))
+          ));
+        }
+      } catch (_) {}
+    }
+
+    // 4. For You / Top Rated
+    try {
+      const recs = await api('/recommendations', { limit: 12 });
+      if (recs.items && recs.items.length > 0) {
+        const label = _historyCache.length > 0 ? 'For You' : 'Top Rated';
+        app.append(el('section', { class: 'section' },
+          el('div', { class: 'section-header' },
+            el('h2', {}, label),
+            el('span', { class: 'count' }, `${recs.count} picks`)
+          ),
+          el('div', { class: 'row' }, ...recs.items.map(i => renderCard(i)))
+        ));
+      }
+    } catch (_) {}
+
+    // 5. Home sections
     for (const section of data.sections) {
       if (!section.items.length) continue;
-
-      if (section.section === 'Banner') {
-        bannerItems = section.items;
-        continue;
-      }
+      if (section.section === 'Banner') continue;
 
       const header = el('div', { class: 'section-header' },
         el('h2', { onclick: () => { location.hash = `#/browse/${encodeURIComponent(section.section)}`; } }, section.section),
@@ -454,18 +516,6 @@ async function renderHome() {
       );
       const row = el('div', { class: 'row' }, ...section.items.map(renderCard));
       app.append(el('section', { class: 'section' }, header, row));
-    }
-
-    if (bannerItems && bannerItems.length > 0) {
-      const hero = renderBannerCarousel(bannerItems);
-      const contEl = app.firstChild && app.firstChild.querySelector
-        ? app.firstChild
-        : null;
-      if (contEl && contEl.querySelector && contEl.querySelector('.history-meta')) {
-        app.insertBefore(hero, contEl.nextSibling);
-      } else {
-        app.prepend(hero);
-      }
     }
   } catch (e) {
     app.innerHTML = `<div class="error">${escape(e.message)}</div>`;
@@ -562,7 +612,7 @@ async function renderBrowse(section) {
 // ─── BOOKMARKS ──────────────────────────────────────────────────────────────
 function renderBookmarks() {
   const app = $('#app');
-  const items = Object.values(getBookmarks()).sort((a, b) => b.saved_at - a.saved_at);
+  const items = Object.values(getBookmarks()).sort((a, b) => (b.saved_at || 0) - (a.saved_at || 0));
   app.innerHTML = '';
 
   const header = el('div', { class: 'page-header' },
@@ -572,9 +622,10 @@ function renderBookmarks() {
   if (items.length > 0) {
     header.append(el('button', {
       class: 'clear-btn',
-      onclick: () => {
+      onclick: async () => {
         if (confirm(`Clear all ${items.length} bookmarks?`)) {
-          LS.remove(KEY_BOOKMARKS);
+          try { await fetch('/user/bookmarks', { method: 'DELETE' }); } catch (_) {}
+          _bookmarksCache = {};
           renderBookmarks();
         }
       }
@@ -599,7 +650,7 @@ function renderBookmarks() {
 // ─── HISTORY ────────────────────────────────────────────────────────────────
 function renderHistory() {
   const app = $('#app');
-  const items = getHistory().sort((a, b) => b.updated_at - a.updated_at);
+  const items = [..._historyCache].sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
   app.innerHTML = '';
 
   const header = el('div', { class: 'page-header' },
@@ -609,9 +660,10 @@ function renderHistory() {
   if (items.length > 0) {
     header.append(el('button', {
       class: 'clear-btn',
-      onclick: () => {
+      onclick: async () => {
         if (confirm(`Clear all ${items.length} history entries?`)) {
-          LS.remove(KEY_HISTORY);
+          try { await fetch('/user/history', { method: 'DELETE' }); } catch (_) {}
+          _historyCache = [];
           renderHistory();
         }
       }
@@ -688,7 +740,6 @@ async function renderDetail(slug) {
     if (subject.imdbRatingValue) metaItems.push(`★ ${subject.imdbRatingValue}`);
     if (subject.genre) metaItems.push(subject.genre);
 
-    // ─── play area ─────────────────────────────────────────────────────────
     const playArea = el('div', {});
     const seasons = extractSeasons(resource);
     const access = root.accessStrategy || {};
@@ -737,12 +788,11 @@ async function renderDetail(slug) {
       }, '▶ Play'));
     }
 
-    // ─── actions row (bookmark + trailer) ──────────────────────────────────
     const saved = isBookmarked(slug);
     const bookmarkBtn = el('button', {
       class: `icon-btn${saved ? ' saved' : ''}`,
-      onclick: (e) => {
-        toggleBookmark({
+      onclick: async (e) => {
+        await toggleBookmark({
           slug, name: subject.title || '', poster_url: posterUrl,
           rating: subject.imdbRatingValue, year: (subject.releaseDate || '').slice(0, 4),
           badge: subject.corner,
@@ -763,7 +813,6 @@ async function renderDetail(slug) {
 
     const actions = el('div', { class: 'detail-actions' }, bookmarkBtn, trailerBtn);
 
-    // ─── metadata blocks ───────────────────────────────────────────────────
     const stars = root.stars || [];
     const castBlock = stars.length ? el('div', { class: 'cast' },
       el('div', { class: 'cast-label' }, 'Cast'),
@@ -815,7 +864,6 @@ async function openPlayerBySlug(slug, se, ep) {
   }
 }
 
-// ─── TRAILER PLAYER (simple, no history, no subtitle picker) ────────────────
 function openTrailerPlayer(url, title) {
   document.querySelectorAll('.player-overlay').forEach(n => n.remove());
 
@@ -843,7 +891,6 @@ function openTrailerPlayer(url, title) {
   document.body.append(overlay);
 }
 
-// ─── PLAYER ─────────────────────────────────────────────────────────────────
 async function openPlayer(sid, slug, se, ep, episodeList, showTitle, posterUrl) {
   document.querySelectorAll('.player-overlay').forEach(n => n.remove());
 
@@ -1098,7 +1145,13 @@ function route() {
 }
 
 window.addEventListener('hashchange', route);
-route();
+
+// Boot: load user data first, then render the initial route
+(async () => {
+  $('#app').innerHTML = '<div class="loading">Loading...</div>';
+  await loadUserData();
+  route();
+})();
 </script>
 </body>
 </html>
