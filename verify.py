@@ -1,7 +1,14 @@
 """
 Live verification for MovieBox API Pro v2.7.0.
+
+Author: Faisal (https://github.com/faisaljs)
+Repo:   https://github.com/faisaljs/Moviebox-API
+License: MIT
+
 Run against a live server: python verify.py [base_url]
+Default: http://localhost:8000
 """
+
 import sys
 import httpx
 import time

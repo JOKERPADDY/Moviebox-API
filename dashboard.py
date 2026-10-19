@@ -1,9 +1,15 @@
+"""
+MovieBox API Pro — https://github.com/faisaljs/Moviebox-API
+Author: Faisal (https://github.com/faisaljs)
+License: MIT
+"""
+
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MovieBox Pure API | Pro Dashboard</title>
+<title>MovieBox Pro — by faisaljs</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
 :root{--primary:#ff3d71;--secondary:#3366ff;--accent:#00f2ff;--bg:#07080c;--card-bg:rgba(255,255,255,0.03);--glass:rgba(255,255,255,0.06);--text:#fff}
@@ -26,9 +32,12 @@ h1{font-size:clamp(2.5rem,8vw,4rem);font-weight:800;background:linear-gradient(1
 .btn:hover{background:var(--primary);color:#fff;transform:translateY(-2px);box-shadow:0 10px 25px rgba(255,61,113,.4)}
 footer{text-align:center;padding:80px 0 40px;animation:fadeIn 2s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.dev-tag{font-weight:800;color:#666;letter-spacing:3px;text-transform:uppercase;font-size:.75rem;border:1px solid #222;padding:12px 30px;border-radius:50px;display:inline-block;background:rgba(255,255,255,.01);transition:all .3s}
+.dev-tag{font-weight:800;color:#666;letter-spacing:3px;text-transform:uppercase;font-size:.75rem;border:1px solid #222;padding:12px 30px;border-radius:50px;display:inline-block;background:rgba(255,255,255,.01);transition:all .3s;text-decoration:none}
 .dev-tag:hover{color:var(--text);border-color:var(--primary);letter-spacing:5px}
 .tag-new{background:var(--accent);color:#000;font-size:.6rem;font-weight:800;padding:3px 8px;border-radius:6px;letter-spacing:1px;margin-left:6px;vertical-align:middle}
+.footer-links{margin-top:16px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.footer-links a{color:#667;text-decoration:none;font-size:.85rem;font-weight:500;transition:color .2s}
+.footer-links a:hover{color:var(--primary)}
 @media(max-width:480px){.container{padding:40px 16px}.card{padding:25px}h1{margin-bottom:10px}}
 </style>
 </head>
@@ -57,7 +66,15 @@ footer{text-align:center;padding:80px 0 40px;animation:fadeIn 2s ease}
 <div class="card"><div class="card-title"><i>📄</i> VTT</div><p class="card-desc">SRT → WebVTT inline.</p><div class="endpoint">/api/stream/{sid}/subtitles/{lang}</div><a href="/api/stream/6207982430134357800/subtitles/en?detail_path=breaking-bad-ej6Bp0MCAo7" target="_blank" class="btn">Get</a></div>
 <div class="card"><div class="card-title"><i>❤️</i> Health</div><p class="card-desc">Liveness + per-provider state.</p><div class="endpoint">/health</div><a href="/health" target="_blank" class="btn">Check</a></div>
 </div>
-<footer><div class="dev-tag">Developer: Faisal</div></footer>
+<footer>
+<a href="https://github.com/faisaljs" target="_blank" class="dev-tag">Developer: Faisal</a>
+<div class="footer-links">
+<a href="https://github.com/faisaljs/Moviebox-API" target="_blank">GitHub Repo</a>
+<a href="https://github.com/faisaljs" target="_blank">@faisaljs</a>
+<a href="/app" target="_blank">Frontend</a>
+<a href="/docs" target="_blank">API Docs</a>
+</div>
+</footer>
 </div>
 </body>
 </html>"""

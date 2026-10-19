@@ -1,5 +1,7 @@
 # Contributing
 
+**Maintainer:** [Faisal (@faisaljs)](https://github.com/faisaljs) · [Repo](https://github.com/faisaljs/Moviebox-API) · [Issues](https://github.com/faisaljs/Moviebox-API/issues)
+
 Short version: fork, branch, make it work, run `verify.py`, open a PR. Keep it small. Explain *why* in the PR body, not *what* — the diff shows what.
 
 ## Setup

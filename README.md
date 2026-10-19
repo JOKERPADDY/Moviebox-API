@@ -2,6 +2,13 @@
   <img src="https://h5-static.aoneroom.com/ssrStatic/mbOfficial/public/_nuxt/web-logo.apJjVir2.svg" alt="LOGO" width="200"/>
 </p>
 
+<p align="center">
+  <a href="https://github.com/faisaljs/Moviebox-API"><img alt="GitHub Repo" src="https://img.shields.io/badge/github-faisaljs%2FMoviebox--API-ff3d71?style=flat-square&logo=github"></a>
+  <a href="https://github.com/faisaljs"><img alt="Author" src="https://img.shields.io/badge/author-faisaljs-3366ff?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-00c853?style=flat-square"></a>
+  <a href="https://github.com/faisaljs/Moviebox-API/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/faisaljs/Moviebox-API?style=flat-square&color=ffcc00"></a>
+</p>
+
 # MovieBox API Pro
 
 A pure REST API wrapper around [moviebox.ph](https://moviebox.ph) with an indexed catalog, provider failover, FTS5 search, and a self-hosted frontend.
@@ -567,6 +574,22 @@ Upstream `/subject/search` is relevance-ranked, not exhaustive. `Matrix` isn't i
 **v2.3.1** — `/search/suggest` honesty (text-only upstream), `total_sentinel` flag, `?tab=` override, `/api/tabs`.
 
 **v2.3.0** — shared `httpx.AsyncClient`, async-locked token init, retry with backoff, `/home/all`, `/api/stream/{sid}/proxy`, `/api/stream/{sid}/subtitles/{lang}`, Docker setup.
+
+---
+
+## Author
+
+**Faisal** ([@faisaljs](https://github.com/faisaljs))
+
+- GitHub: [github.com/faisaljs](https://github.com/faisaljs)
+- Repo: [github.com/faisaljs/Moviebox-API](https://github.com/faisaljs/Moviebox-API)
+- Issues / PRs: [github.com/faisaljs/Moviebox-API/issues](https://github.com/faisaljs/Moviebox-API/issues)
+
+If you use this project, a star on GitHub is appreciated.
+
+## License
+
+MIT — see [LICENSE](LICENSE) for the full text.
 
 ---
 

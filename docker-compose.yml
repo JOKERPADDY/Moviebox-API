@@ -2,6 +2,11 @@ services:
   moviebox-api:
     build: .
     container_name: moviebox-api
+    labels:
+      org.opencontainers.image.title: "MovieBox API Pro"
+      org.opencontainers.image.authors: "Faisal (https://github.com/faisaljs)"
+      org.opencontainers.image.source: "https://github.com/faisaljs/Moviebox-API"
+      org.opencontainers.image.licenses: "MIT"
     ports:
       - "8000:8000"
     env_file:

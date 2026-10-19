@@ -1,5 +1,12 @@
 FROM python:3.12-slim
 
+LABEL org.opencontainers.image.title="MovieBox API Pro"
+LABEL org.opencontainers.image.description="Pure REST API wrapper for moviebox.ph — zero scraping"
+LABEL org.opencontainers.image.authors="Faisal <https://github.com/faisaljs>"
+LABEL org.opencontainers.image.source="https://github.com/faisaljs/Moviebox-API"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.url="https://github.com/faisaljs/Moviebox-API"
+
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

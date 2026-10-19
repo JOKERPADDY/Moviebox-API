@@ -1,3 +1,9 @@
+"""
+MovieBox API Pro — https://github.com/faisaljs/Moviebox-API
+Author: Faisal (https://github.com/faisaljs)
+License: MIT
+"""
+
 import os
 import sqlite3
 import asyncio
@@ -72,6 +78,14 @@ app = FastAPI(
     title="MovieBox API Pro",
     description="Full Pure REST API for moviebox.ph — Zero Scraping",
     version=API_VERSION,
+    contact={
+        "name": "Faisal",
+        "url": "https://github.com/faisaljs",
+    },
+    license_info={
+        "name": "MIT",
+        "url": "https://github.com/faisaljs/Moviebox-API/blob/main/LICENSE",
+    },
     lifespan=lifespan,
 )
 
