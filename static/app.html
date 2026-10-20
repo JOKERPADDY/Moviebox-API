@@ -573,6 +573,8 @@ async function renderCatalog(params) {
     });
     filters.append(catalogSearch);
 
+    app.append(filters);
+
     const sourceNote = data.source === 'upstream_fallback' ? ' · live results' : '';
     app.append(el('div', { class: 'catalog-meta' },
       el('span', {}, `${data.total} results · page ${data.page} of ${data.total_pages || 1}${sourceNote}`)
