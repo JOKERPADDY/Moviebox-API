@@ -356,6 +356,51 @@ async def catalog(
         """,
         tuple(params + [per_page, offset]),
     )
+
+    # When local FTS finds nothing for a text query, fall back to upstream
+    # search. Upstream handles abbreviations ("jjk" → Jujutsu Kaisen) and
+    # typo tolerance that FTS5 token matching can't.
+    if q and total == 0:
+        try:
+            up_data = await upstream.bff_request(
+                "/subject/search", method="POST",
+                payload={"keyword": q, "page": page, "perPage": per_page},
+            )
+            inner = up_data.get("data", {}) or {}
+            raw = inner.get("items") or inner.get("list") or []
+            up_items = [
+                {
+                    "name": sub.get("title"),
+                    "poster_url": (sub.get("cover") or {}).get("url"),
+                    "slug": sub.get("detailPath"),
+                    "subject_id": sub.get("subjectId"),
+                    "rating": sub.get("imdbRatingValue"),
+                    "year": (sub.get("releaseDate") or "")[:4] or None,
+                    "badge": sub.get("corner"),
+                    "subject_type": None,
+                    "genre": None,
+                    "source_host": "upstream",
+                    "types": [],
+                }
+                for sub in raw
+            ]
+            pager = inner.get("pager", {}) or {}
+            up_total = pager.get("totalCount") or inner.get("total") or len(up_items)
+            return {
+                "type": type,
+                "sort": sort,
+                "query": q,
+                "host": "upstream",
+                "page": page,
+                "per_page": per_page,
+                "total": up_total,
+                "total_pages": (up_total + per_page - 1) // per_page if per_page else 0,
+                "items": up_items,
+                "source": "upstream_fallback",
+            }
+        except Exception:
+            pass
+
     return {
         "type": type,
         "sort": sort,
@@ -366,6 +411,7 @@ async def catalog(
         "total": total,
         "total_pages": (total + per_page - 1) // per_page if per_page else 0,
         "items": [_row_to_item(r) for r in rows],
+        "source": "local",
     }
 
 
