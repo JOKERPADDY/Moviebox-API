@@ -459,10 +459,15 @@ async function renderHome() {
   const app = $('#app');
   app.innerHTML = '<div class="loading">Loading...</div>';
   try {
-    const data = await api('/home');
+    const recent = _historyCache[0];
+    const [data, rec, recs] = await Promise.all([
+      api('/home'),
+      recent ? api(`/recommendations/because/${recent.slug}`, { limit: 12 }).catch(() => null) : null,
+      api('/recommendations', { limit: 12 }).catch(() => null),
+    ]);
     app.innerHTML = '';
 
-    // 1. Hero carousel — flagship, top of the page
+    // 1. Hero carousel
     let bannerItems = null;
     for (const section of data.sections) {
       if (section.section === 'Banner') { bannerItems = section.items; break; }
@@ -471,7 +476,7 @@ async function renderHome() {
       app.append(renderBannerCarousel(bannerItems));
     }
 
-    // 2. Continue Watching
+    // 2. Continue watching
     const cont = recentHistoryForContinue(true, 30, 8);
     if (cont.length > 0) {
       app.append(el('section', { class: 'section' },
@@ -484,43 +489,33 @@ async function renderHome() {
     }
 
     // 3. Because you watched
-    if (_historyCache.length > 0) {
-      const recent = _historyCache[0];
-      try {
-        const rec = await api(`/recommendations/because/${recent.slug}`, { limit: 12 });
-        if (rec.items && rec.items.length > 0) {
-          const label = `Because you watched ${rec.title || recent.name || 'a title'}`;
-          app.append(el('section', { class: 'section' },
-            el('div', { class: 'section-header' },
-              el('h2', {}, label),
-              el('span', { class: 'count' }, `${rec.items.length} similar`)
-            ),
-            el('div', { class: 'row' }, ...rec.items.map(i => renderCard(i)))
-          ));
-        }
-      } catch (_) {}
+    if (rec && rec.items && rec.items.length > 0) {
+      const label = `Because you watched ${rec.title || (recent && recent.name) || 'a title'}`;
+      app.append(el('section', { class: 'section' },
+        el('div', { class: 'section-header' },
+          el('h2', {}, label),
+          el('span', { class: 'count' }, `${rec.items.length} similar`)
+        ),
+        el('div', { class: 'row' }, ...rec.items.map(i => renderCard(i)))
+      ));
     }
 
     // 4. For You / Top Rated
-    try {
-      const recs = await api('/recommendations', { limit: 12 });
-      if (recs.items && recs.items.length > 0) {
-        const label = _historyCache.length > 0 ? 'For You' : 'Top Rated';
-        app.append(el('section', { class: 'section' },
-          el('div', { class: 'section-header' },
-            el('h2', {}, label),
-            el('span', { class: 'count' }, `${recs.count} picks`)
-          ),
-          el('div', { class: 'row' }, ...recs.items.map(i => renderCard(i)))
-        ));
-      }
-    } catch (_) {}
+    if (recs && recs.items && recs.items.length > 0) {
+      const label = _historyCache.length > 0 ? 'For You' : 'Top Rated';
+      app.append(el('section', { class: 'section' },
+        el('div', { class: 'section-header' },
+          el('h2', {}, label),
+          el('span', { class: 'count' }, `${recs.count} picks`)
+        ),
+        el('div', { class: 'row' }, ...recs.items.map(i => renderCard(i)))
+      ));
+    }
 
     // 5. Home sections
     for (const section of data.sections) {
       if (!section.items.length) continue;
       if (section.section === 'Banner') continue;
-
       const header = el('div', { class: 'section-header' },
         el('h2', { onclick: () => { location.hash = `#/browse/${encodeURIComponent(section.section)}`; } }, section.section),
         el('span', { class: 'count' }, `${section.count} items`)

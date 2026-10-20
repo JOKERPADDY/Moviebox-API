@@ -16,9 +16,19 @@ import upstream
 from fastapi import HTTPException
 
 
+_home_cache: dict = {}  # host -> (ops, expires)
+
+
 async def get_home_operating_list(host: str | None = DEFAULT_HOST) -> list:
+    h = host or DEFAULT_HOST
+    now = time.time()
+    cached = _home_cache.get(h)
+    if cached and now < cached[1]:
+        return cached[0]
     data = await upstream.bff_request("/home", preferred_host=host)
-    return data.get("data", {}).get("operatingList", []) or []
+    ops = data.get("data", {}).get("operatingList", []) or []
+    _home_cache[h] = (ops, now + 300)
+    return ops
 
 
 async def ingest_home_sections(host: str = DEFAULT_HOST) -> int:
