@@ -1105,6 +1105,17 @@ async function openPlayer(sid, slug, se, ep, episodeList, showTitle, posterUrl) 
 
 // ─── SEARCH ─────────────────────────────────────────────────────────────────
 let searchTimer;
+$('#search').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const q = e.target.value.trim();
+    if (q.length < 2) return;
+    e.preventDefault();
+    $('#search-results').innerHTML = '';
+    $('#search').value = '';
+    $('#search').blur();
+    location.hash = `#/catalog?${qs({ q })}`;
+  }
+});
 $('#search').addEventListener('input', (e) => {
   clearTimeout(searchTimer);
   const q = e.target.value.trim();
@@ -1121,6 +1132,14 @@ $('#search').addEventListener('input', (e) => {
           href: `#/detail/${s.slug}`,
           onclick: () => { results.innerHTML = ''; $('#search').value = ''; }
         }, s.title));
+      }
+      if ((data.suggestions || []).length > 0) {
+        results.append(el('a', {
+          class: 'search-result',
+          href: `#/catalog?${qs({ q })}`,
+          style: 'background:rgba(255,61,113,0.08);font-weight:600;color:#ff3d71;text-align:center',
+          onclick: () => { results.innerHTML = ''; $('#search').value = ''; }
+        }, `See all results for "${q}" →`));
       }
     } catch (_) { results.innerHTML = ''; }
   }, 300);
