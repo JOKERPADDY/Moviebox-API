@@ -9,9 +9,10 @@ import sqlite3
 import asyncio
 from contextlib import asynccontextmanager
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 import state
 import storage
@@ -97,6 +98,31 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/manifest.json")
+async def manifest():
+    path = os.path.join(STATIC_DIR, "manifest.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="application/manifest+json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="manifest.json not found")
+
+
+@app.get("/sw.js")
+async def service_worker():
+    path = os.path.join(STATIC_DIR, "sw.js")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return Response(
+                content=f.read(),
+                media_type="application/javascript",
+                headers={"Service-Worker-Allowed": "/"},
+            )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="sw.js not found")
 
 
 @app.get("/", response_class=HTMLResponse)
