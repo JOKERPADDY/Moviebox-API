@@ -216,17 +216,17 @@ async def run_enrichment():
     enriched = 0
     failed = 0
     try:
-        while True:
-            rows = storage.read("""
-                SELECT subject_id, slug, source_host FROM subjects
-                WHERE subject_type IS NULL
-                  AND slug IS NOT NULL
-                  AND is_movie = 0 AND is_tv = 0 AND is_anime = 0
-                LIMIT ?
-            """, (ENRICH_BATCH_SIZE,))
-            if not rows:
-                break
-            for row in rows:
+        # Snapshot pending rows so failures are not selected repeatedly in
+        # this run and cannot keep the worker in an endless retry loop.
+        rows = storage.read("""
+            SELECT subject_id, slug, source_host FROM subjects
+            WHERE subject_type IS NULL
+              AND slug IS NOT NULL
+              AND is_movie = 0 AND is_tv = 0 AND is_anime = 0
+            ORDER BY first_seen
+        """)
+        for start in range(0, len(rows), ENRICH_BATCH_SIZE):
+            for row in rows[start:start + ENRICH_BATCH_SIZE]:
                 ok = await enrich_subject(row)
                 if ok:
                     enriched += 1
@@ -245,7 +245,9 @@ async def run_enrichment():
         state.walk_state["enrich_progress"] = {
             "enriched": enriched,
             "failed": failed,
-            "remaining": 0,
+            "remaining": storage.read_scalar(
+                "SELECT COUNT(*) FROM subjects WHERE subject_type IS NULL AND slug IS NOT NULL"
+            ) or 0,
             "finished_at": time.time(),
         }
     finally:

@@ -67,13 +67,17 @@ def ordered_candidates(preferred: str | None, strict: bool) -> list[str]:
         return [preferred]
 
     ordered: list[str] = []
-    if preferred and preferred in provider_state:
+    eligible = {
+        h for h, st in provider_state.items()
+        if st["circuit_open_until"] <= now
+    }
+    if preferred and preferred in eligible:
         ordered.append(preferred)
 
     healthy = [
         (st["avg_latency_ms"] or 9999, h)
         for h, st in provider_state.items()
-        if h not in ordered and st["alive"] and st["circuit_open_until"] <= now
+        if h not in ordered and h in eligible and st["alive"]
     ]
     healthy.sort()
     ordered.extend(h for _, h in healthy)
@@ -81,10 +85,19 @@ def ordered_candidates(preferred: str | None, strict: bool) -> list[str]:
     rest = [
         (st["avg_latency_ms"] or 9999, h)
         for h, st in provider_state.items()
-        if h not in ordered
+        if h not in ordered and h in eligible
     ]
     rest.sort()
     ordered.extend(h for _, h in rest)
+
+    # If every circuit is open, allow only the host whose cooldown ends
+    # first to receive a recovery attempt.
+    if not ordered and provider_state:
+        first = min(
+            provider_state.items(),
+            key=lambda item: (item[1]["circuit_open_until"], item[1]["avg_latency_ms"] or 9999),
+        )[0]
+        ordered.append(first)
 
     return ordered
 

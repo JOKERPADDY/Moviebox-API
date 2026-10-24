@@ -32,7 +32,7 @@ The first boot kicks off the catalog walk. ~3 minutes to populate the DB, then e
    ```bash
    python verify.py
    ```
-   All 27 checks must print `[PASS]`. If one fails, either your change broke it or upstream drifted — figure out which before opening the PR.
+   Every check must print `[PASS]`. If one fails, either your change broke it or upstream drifted — figure out which before opening the PR.
 
 2. **Touch the smallest surface possible.** One concern per PR. Don't bundle a refactor with a feature.
 

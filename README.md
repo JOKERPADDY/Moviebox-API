@@ -341,17 +341,23 @@ Single-file vanilla JS, no build step, no dependencies. Served by the same FastA
 
 **Views:**
 
-- **Home** — hero carousel (auto-rotating, arrows, dots, Ken Burns zoom on the backdrop), continue-watching row above it (deduped by show, position ≥ 30s, top 8), then horizontal scroll rows for every home section
+- **Home** — hero carousel (auto-rotating, arrows, dots, Ken Burns zoom on the backdrop), followed by continue-watching (deduped by show, position ≥ 30s, top 8), recommendations, then horizontal scroll rows for every home section
 - **Catalog** — type tabs (All/Movies/TV/Anime), sort dropdown, FTS title filter, pagination
 - **Bookmarks** — everything you've hearted, sorted by save time, "Clear all" button
 - **History** — every episode you've watched with progress bar and resume button
 - **Detail** — poster, description, metadata, cast, dubs, Play button or season/episode grid, bookmark toggle, trailer button (when available), watched-episode dots
 - **Player** — modal overlay with quality picker, subtitle picker, resume-from-history, keyboard shortcuts, episode picker on missing streams
 
-**Persistence** (localStorage, per-browser):
+**Persistence** (server-side SQLite):
 
-- `mb_bookmarks` — saved titles
-- `mb_history` — watch progress per `(slug, se, ep)`, capped at 200 entries
+- `user_bookmarks` — saved titles
+- `user_history` — watch progress per `(slug, se, ep)`
+
+This is a single-user personal app: every client connected to one server shares
+the same bookmarks and watch history. The API does not authenticate users or
+partition this data. If you expose it beyond your own devices, put an
+authenticated reverse proxy in front of it; use a separate identity-aware
+deployment if multiple people need independent libraries.
 
 **Trailer playback** — when `subject.trailer.videoAddress.url` exists, a `▶ Trailer` button appears next to Bookmark on the detail page. Opens a minimal overlay with the promo MP4. No history tracking.
 
@@ -473,7 +479,7 @@ On boot, right after `init_schema`, the lifespan runs `PRAGMA integrity_check`. 
 
 ## Verification
 
-`verify.py` runs a live integration pass against a running server. 27 checks, chains real requests — pulls a slug from `/home`, feeds `/detail`, `/api/stream`, `/captions`, `/proxy`, `/subtitles`. Also exercises `/providers`, `/api/hosts`, catalog sorts, filters, FTS search.
+`verify.py` runs a live integration pass against a running server. It chains real requests — pulls a slug from `/home`, feeds `/detail`, `/api/stream`, `/captions`, `/proxy`, `/subtitles`. It also exercises `/providers`, `/api/hosts`, catalog sorts, filters, FTS search, and user-data round trips.
 
 ```bash
 # server must be running

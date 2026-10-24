@@ -360,7 +360,7 @@ async def catalog(
     # When local FTS finds nothing for a text query, fall back to upstream
     # search. Upstream handles abbreviations ("jjk" → Jujutsu Kaisen) and
     # typo tolerance that FTS5 token matching can't.
-    if q and total == 0:
+    if q and total == 0 and type in ("all", "") and not host:
         try:
             up_data = await upstream.bff_request(
                 "/subject/search", method="POST",
@@ -564,6 +564,7 @@ async def _get_category_data(tab_id: int, page: int = 1, per_page: int = 24, sor
 async def _catalog_from_home(keywords: list[str], page: int, host: str | None = DEFAULT_HOST, per_page: int = 24) -> dict | None:
     ops = await catalog_worker.get_home_operating_list(host)
     matched_items: list[dict] = []
+    seen_ids: set[str] = set()
     matched_sections: set[str] = set()
     for op in ops:
         op_type = op.get("type")
@@ -575,7 +576,9 @@ async def _catalog_from_home(keywords: list[str], page: int, host: str | None = 
         matched_sections.add(title)
         for raw in op.get("subjects", []) or []:
             item = normalize_subject_item(raw)
-            if item and item.get("subject_id"):
+            sid = str(item.get("subject_id")) if item and item.get("subject_id") else None
+            if item and sid and sid not in seen_ids:
+                seen_ids.add(sid)
                 matched_items.append(item)
     if not matched_items:
         return None

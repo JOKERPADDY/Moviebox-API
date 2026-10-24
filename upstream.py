@@ -219,7 +219,10 @@ async def resolve_stream(subject_id: str, detail_path: str, se: int, ep: int) ->
                     pass
 
             return result
-        except HTTPException:
+        except HTTPException as e:
+            last_error = str(e.detail)
+            if attempt == 0:
+                continue
             raise
         except Exception as e:
             last_error = str(e)

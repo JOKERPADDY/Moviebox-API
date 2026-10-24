@@ -91,9 +91,13 @@ def init_schema():
                 INSERT INTO subjects_fts(rowid, title) VALUES (new.rowid, new.title);
             END
         """)
-        subj_count = conn.execute("SELECT COUNT(*) FROM subjects").fetchone()[0]
-        fts_count = conn.execute("SELECT COUNT(*) FROM subjects_fts").fetchone()[0]
-        if subj_count != fts_count:
+        # COUNT(*) on external-content FTS reads the content table, so it
+        # cannot reveal a missing or stale search index.
+        try:
+            conn.execute(
+                "INSERT INTO subjects_fts(subjects_fts, rank) VALUES('integrity-check', 1)"
+            )
+        except sqlite3.DatabaseError:
             conn.execute("INSERT INTO subjects_fts(subjects_fts) VALUES('rebuild')")
     except Exception as e:
         print(f"FTS5 setup failed (search will fall back to LIKE): {e}")
